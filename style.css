@@ -210,6 +210,14 @@ body{
 .leaflet-container{ background:#0e1116; }
 .leaflet-popup-content-wrapper{ font-family:'IBM Plex Mono', monospace; font-size:12px; }
 
+.fatal-banner{
+  position:fixed; top:0; left:0; right:0; z-index:9999;
+  background:#b8341f; color:#fff; padding:12px 18px;
+  font-family:'IBM Plex Mono', monospace; font-size:12.5px; line-height:1.6;
+  box-shadow: var(--shadow);
+}
+.fatal-banner code{ background:rgba(0,0,0,.25); padding:1px 5px; border-radius:3px; }
+
 @media (max-width: 900px){
   .body-grid{ grid-template-columns:1fr; grid-template-rows: 55vh minmax(0,1fr); }
   .side-pane{ border-left:none; border-top:3px solid var(--kraft-dark); }

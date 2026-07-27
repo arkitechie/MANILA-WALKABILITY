@@ -142,6 +142,41 @@
 <script src="app_meta.js"></script>
 <script src="preprocess.js"></script>
 <script src="model.js"></script>
+
+<div id="fatalBanner" class="fatal-banner hidden"></div>
+
+<script>
+  // Surface loud, visible errors instead of a silent blank map — makes it
+  // obvious in the page itself (not just devtools) when a CDN script
+  // (Leaflet / h3-js) didn't load, e.g. no internet access or a sandboxed
+  // preview blocking external requests.
+  function showFatal(message) {
+    const el = document.getElementById('fatalBanner');
+    el.innerHTML = message;
+    el.classList.remove('hidden');
+  }
+  const missing = [];
+  if (typeof L === 'undefined') missing.push('Leaflet (cdnjs.cloudflare.com)');
+  if (typeof h3 === 'undefined') missing.push('h3-js (unpkg.com)');
+  if (missing.length) {
+    showFatal(
+      '<b>Map libraries failed to load:</b> ' + missing.join(', ') + '.<br>' +
+      'This page needs internet access to fetch those two CDN scripts. If you\'re viewing this inside ' +
+      'a sandboxed preview, open the downloaded folder in a real browser tab instead (e.g. run ' +
+      '<code>python3 -m http.server 8000</code> in this folder, then visit ' +
+      '<code>http://localhost:8000</code>).'
+    );
+  } else {
+    try {
+      // app.js is loaded next; if it throws, catch it here so the page
+      // fails loudly instead of silently.
+      window.addEventListener('error', (e) => {
+        showFatal('<b>App error:</b> ' + (e.message || 'unknown error') +
+          (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+      });
+    } catch (e) { /* no-op */ }
+  }
+</script>
 <script src="app.js"></script>
 </body>
 </html>
