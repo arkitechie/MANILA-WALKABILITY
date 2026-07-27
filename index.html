@@ -1,344 +1,307 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Manila Walkability — H3 res-9 transect explorer</title>
-
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Manila Walkability — real streets, real scores</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-
 <style>
-/* ─── tokens ──────────────────────────────────────────────────────────── */
+/* ===========================================================================
+   Palette sampled from OS.png (Overnight Strategist) and validated with the
+   data-viz palette checker against the cream surface #F5EBDE:
+
+     walkability ramp   7-step single-hue indigo, monotone light -> dark,
+                        light end 2.24:1 vs surface           [ordinal PASS]
+     route series       #2E7D32 / #B8860B / #F26B6C           [all-pairs PASS]
+                        worst CVD dE 7.2 sits in the 6-8 band, so every route
+                        also carries a dash pattern and a direct label.
+
+   The basemap stays black and white; colour is reserved for data.
+   =========================================================================== */
 :root{
-  --ink:#0A0F18; --panel:#111A27; --panel2:#182434; --panel3:#1F2D40;
-  --line:#253449; --line2:#31445F;
-  --text:#E4EDF9; --muted:#8497B2; --dim:#5C6E8A;
-  --route:#4FD8EE; --route-soft:rgba(79,216,238,.16); --warn:#F2B33D; --bad:#E4635A;
-  /* walkability ramp, low → high */
-  --r1:#3B1F5C; --r2:#7E2F6B; --r3:#C24A5C; --r4:#EC8B3F; --r5:#F5E06B;
-  --sans:'IBM Plex Sans',system-ui,sans-serif;
-  --disp:'Space Grotesk',var(--sans);
-  --mono:'IBM Plex Mono',ui-monospace,monospace;
-  --sb:380px;
+  color-scheme: light;
+
+  --cream:#F5EBDE; --card:#FFFAED; --card2:#FDF4E6;
+  --ink:#14120E; --ink2:#55503F; --muted:#8B8471;
+  --rule:#E2D8C8; --rule2:#D2C6B2;
+
+  --brand:#50488E; --brand-dk:#3A3270; --coral:#F26B6C; --sage:#B1D198; --amber:#FFC234;
+
+  /* sequential: walkability magnitude */
+  --w1:#A399C9; --w2:#8F84BC; --w3:#7B6FAF; --w4:#675BA1;
+  --w5:#534792; --w6:#40347A; --w7:#2C2358;
+
+  /* categorical: the three route proposals */
+  --r-walk:#2E7D32; --r-balance:#B8860B; --r-short:#F26B6C;
+
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace;
+  --sh:0 1px 2px rgba(20,18,14,.06),0 6px 20px rgba(20,18,14,.07);
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{
-  background:var(--ink); color:var(--text); font-family:var(--sans);
-  font-size:14px; line-height:1.5; overflow:hidden;
-  -webkit-font-smoothing:antialiased;
-}
-:focus-visible{outline:2px solid var(--route); outline-offset:2px; border-radius:3px}
+body{background:var(--cream);color:var(--ink);font:14px/1.5 var(--sans);
+     overflow:hidden;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.shell{display:grid;grid-template-rows:auto 1fr;height:100%}
 
-/* ─── shell ───────────────────────────────────────────────────────────── */
-.shell{display:grid; grid-template-rows:auto 1fr; height:100%}
+/* ------------------------------------------------------------------ topbar */
+.topbar{display:flex;align-items:center;gap:22px;padding:10px 18px;
+        background:var(--card);border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-size:16px;letter-spacing:-.015em}
+.brand b i{font-style:normal;color:var(--brand)}
+.brand span{font:10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.stats{display:flex;gap:18px;margin-left:auto;align-items:center;flex-wrap:wrap}
+.stat{text-align:right;line-height:1.2}
+.stat b{display:block;font-size:15px;font-variant-numeric:tabular-nums}
+.stat span{font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--rule2);
+      border-radius:999px;background:var(--card2);font:10px/1 var(--mono);letter-spacing:.04em;
+      color:var(--ink2);white-space:nowrap}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+.chip.ok .dot{background:#2E7D32}
+.chip.bad .dot{background:var(--coral)}
+.chip.warn .dot{background:var(--amber)}
 
-.topbar{
-  display:flex; align-items:center; gap:18px; padding:10px 16px;
-  background:var(--panel); border-bottom:1px solid var(--line); z-index:1200;
-  flex-wrap:wrap;
-}
-.brand{display:flex; align-items:baseline; gap:10px; margin-right:auto}
-.brand h1{
-  font-family:var(--disp); font-size:16px; font-weight:700; margin:0;
-  letter-spacing:-.01em; white-space:nowrap;
-}
-.brand .sub{font-family:var(--mono); font-size:10.5px; color:var(--dim); letter-spacing:.06em; text-transform:uppercase}
-
-.stat{display:flex; flex-direction:column; line-height:1.15}
-.stat b{font-family:var(--mono); font-size:13px; font-weight:600}
-.stat span{font-family:var(--mono); font-size:9.5px; color:var(--dim); letter-spacing:.07em; text-transform:uppercase}
-
-.chip{
-  display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:999px;
-  border:1px solid var(--line2); background:var(--panel2);
-  font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
-}
-.chip .dot{width:6px; height:6px; border-radius:50%; background:var(--dim); flex:none}
-.chip.ok .dot{background:#5FD08A} .chip.ok{border-color:#2E5C43}
-.chip.ref .dot{background:var(--warn)} .chip.ref{border-color:#5C4A24; color:#F0D9A8}
-
-/* ─── body split ──────────────────────────────────────────────────────── */
-.split{display:grid; grid-template-columns:var(--sb) 1fr; min-height:0}
-.side{
-  background:var(--panel); border-right:1px solid var(--line);
-  display:flex; flex-direction:column; min-height:0;
-}
-.mapwrap{position:relative; min-height:0}
-#map{position:absolute; inset:0; background:#070B12}
-
-/* ─── tabs ────────────────────────────────────────────────────────────── */
-.tabs{display:flex; border-bottom:1px solid var(--line); flex:none}
-.tabs button{
-  flex:1; padding:11px 8px; background:none; border:0; border-bottom:2px solid transparent;
-  color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:.09em;
-  text-transform:uppercase; cursor:pointer; transition:color .15s,border-color .15s;
-}
-.tabs button:hover{color:var(--muted)}
-.tabs button[aria-selected="true"]{color:var(--text); border-bottom-color:var(--route)}
-
-.pane{display:none; overflow-y:auto; padding:16px; flex:1; min-height:0}
+/* -------------------------------------------------------------------- body */
+.split{display:grid;grid-template-columns:388px 1fr;min-height:0}
+.side{display:flex;flex-direction:column;min-height:0;background:var(--card);
+      border-right:1px solid var(--rule)}
+.tabs{display:flex;border-bottom:1px solid var(--rule);flex:0 0 auto}
+.tabs button{flex:1;padding:11px 4px;border:0;background:none;cursor:pointer;
+  font:10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+  border-bottom:2px solid transparent}
+.tabs button:hover{color:var(--ink2);background:var(--card2)}
+.tabs button[aria-selected=true]{color:var(--brand);border-bottom-color:var(--brand);background:var(--card2)}
+.pane{display:none;overflow-y:auto;padding:16px;min-height:0}
 .pane.on{display:block}
-.pane::-webkit-scrollbar{width:9px}
-.pane::-webkit-scrollbar-thumb{background:var(--line2); border-radius:9px}
-.pane::-webkit-scrollbar-track{background:transparent}
+.pane h3{margin:0 0 4px;font:10px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.pane h3+p{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
+.hr{height:1px;background:var(--rule);margin:18px 0}
 
-/* ─── generic blocks ──────────────────────────────────────────────────── */
-.eyebrow{
-  font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase;
-  color:var(--dim); margin:0 0 9px;
-  display:flex; align-items:center; gap:8px;
-}
-.eyebrow::after{content:''; flex:1; height:1px; background:var(--line)}
-.card{background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:13px; margin-bottom:14px}
-.hint{font-size:12px; color:var(--muted); margin:0 0 12px}
+.card{background:var(--card2);border:1px solid var(--rule);border-radius:10px;padding:13px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.metric .lbl{font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.metric .num{font-size:22px;font-weight:650;letter-spacing:-.02em;line-height:1.1}
+.metric .sub{font-size:11px;color:var(--muted);margin-top:3px}
 
-/* endpoint pickers */
-.ends{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:13px}
-.end{
-  background:var(--panel2); border:1px solid var(--line); border-left:3px solid var(--dim);
-  border-radius:7px; padding:9px 10px; min-width:0;
-}
-.end.a{border-left-color:var(--r5)} .end.b{border-left-color:var(--route)}
-.end .k{font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; color:var(--dim); text-transform:uppercase}
-.end .v{font-size:12.5px; font-weight:600; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.end .h3i{font-family:var(--mono); font-size:9.5px; color:var(--dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ends{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.end{border:1px solid var(--rule);border-radius:9px;padding:9px 10px;background:var(--card2)}
+.end .k{font:9.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.end .v{font-weight:600;margin-top:4px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.end .h3i{font:9.5px/1.3 var(--mono);color:var(--muted);margin-top:3px;word-break:break-all}
+.end.set{border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+.end.armed{border-color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}
 
-/* readout grid */
-.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
-.metric .lbl{font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--dim)}
-.metric .num{font-family:var(--disp); font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1.15}
-.metric .num small{font-family:var(--mono); font-size:11px; font-weight:500; color:var(--muted); letter-spacing:0}
+.btn{appearance:none;border:1px solid var(--rule2);background:var(--card);color:var(--ink2);
+     border-radius:7px;padding:7px 11px;cursor:pointer;font:10px/1 var(--mono);
+     letter-spacing:.07em;text-transform:uppercase}
+.btn:hover{background:var(--cream);color:var(--ink)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.pri:hover{background:var(--brand-dk)}
+.btn[aria-pressed=true]{background:var(--brand);border-color:var(--brand);color:#fff}
+.btnrow{display:flex;gap:7px;flex-wrap:wrap}
 
-/* ─── SIGNATURE: walk profile tape ────────────────────────────────────── */
-.tape-wrap{margin-top:4px}
-.tape-scroll{overflow-x:auto; padding-bottom:6px}
-.tape-scroll::-webkit-scrollbar{height:7px}
-.tape-scroll::-webkit-scrollbar-thumb{background:var(--line2); border-radius:9px}
-.tape{display:block}
-.tape .est{opacity:.55}
-.tape-axis{
-  display:flex; justify-content:space-between; font-family:var(--mono);
-  font-size:9.5px; color:var(--dim); margin-top:2px;
-}
+.routes{display:flex;flex-direction:column;gap:9px}
+.route{border:1px solid var(--rule);border-left-width:5px;border-radius:9px;padding:10px 12px;
+       background:var(--card2);cursor:pointer}
+.route:hover{background:var(--cream)}
+.route[aria-pressed=true]{box-shadow:0 0 0 2px rgba(80,72,142,.22)}
+.route .rt{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.route .nm{font-weight:650;font-size:13px;display:flex;align-items:center;gap:7px}
+.route .swatch{width:22px;height:0;border-top-width:3px;border-top-style:solid;flex:0 0 auto;border-radius:2px}
+.route .sc{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}
+.route .meta{font:10px/1.5 var(--mono);color:var(--muted);margin-top:5px}
+.route .why{font-size:11.5px;color:var(--ink2);margin-top:5px}
+.route.dup{opacity:.62}
 
-/* legend */
-.legend{display:flex; align-items:center; gap:2px; margin-top:6px}
-.legend i{flex:1; height:7px; display:block}
-.legend-ax{display:flex; justify-content:space-between; font-family:var(--mono); font-size:9.5px; color:var(--dim); margin-top:4px}
+.tape-scroll{overflow-x:auto;border:1px solid var(--rule);border-radius:9px;background:var(--card2)}
+svg.tape{display:block}
+.tape-axis{display:flex;justify-content:space-between;font:9.5px/1 var(--mono);color:var(--muted);margin-top:6px}
 
-/* ─── form ────────────────────────────────────────────────────────────── */
 .field{margin-bottom:12px}
-.field > label{
-  display:flex; justify-content:space-between; align-items:baseline; gap:8px;
-  font-family:var(--mono); font-size:10px; letter-spacing:.07em; text-transform:uppercase;
-  color:var(--muted); margin-bottom:5px;
-}
-.field .unit{color:var(--dim); text-transform:none; letter-spacing:0; font-size:10px}
-input[type=text],input[type=number],select{
-  width:100%; padding:8px 10px; background:var(--panel3); color:var(--text);
-  border:1px solid var(--line2); border-radius:6px; font-family:var(--mono); font-size:12.5px;
-}
-select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
-  background-position:calc(100% - 15px) 51%,calc(100% - 10px) 51%; background-size:5px 5px,5px 5px; background-repeat:no-repeat; padding-right:30px}
-input[readonly]{background:#141E2C; color:var(--muted); border-style:dashed}
-input[type=range]{width:100%; margin:7px 0 0; accent-color:var(--route)}
-.rowin{display:grid; grid-template-columns:1fr 92px; gap:8px; align-items:center}
+.field label{display:block;font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+             color:var(--muted);margin-bottom:5px}
+.field select,.field input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--rule2);
+  border-radius:7px;background:var(--card);color:var(--ink);font:13px var(--sans)}
+.field input[readonly]{background:var(--cream);color:var(--ink2)}
+.rowin{display:flex;gap:9px;align-items:center}
+.rowin input[type=range]{flex:1 1 auto;min-width:0;accent-color:var(--brand)}
+.rowin input[type=number]{flex:0 0 96px}
+.derived{border:1px dashed var(--rule2);border-radius:9px;padding:11px;background:var(--card2)}
+.derived .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+.derived .top span{font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+label.ck{display:inline-flex;align-items:center;gap:6px;font:10px/1 var(--mono);color:var(--ink2);cursor:pointer}
+label.ck input{accent-color:var(--brand)}
 
-.derived{border:1px dashed var(--line2); border-radius:9px; padding:12px; margin-bottom:14px; background:rgba(31,45,64,.35)}
-.derived .top{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
-.toggle{display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10px; color:var(--muted); cursor:pointer; text-transform:uppercase; letter-spacing:.06em}
-.toggle input{accent-color:var(--route); width:14px; height:14px}
+.pred{margin-top:14px;border:1px solid var(--brand);border-radius:10px;padding:13px;background:var(--card2)}
+.pred .num{font-size:34px;font-weight:700;letter-spacing:-.025em;line-height:1.05;color:var(--brand)}
+.pred .of{font-size:11.5px;color:var(--muted);margin-top:2px}
+.pred .bar{height:7px;background:var(--rule);border-radius:99px;margin-top:10px;overflow:hidden}
+.pred .bar i{display:block;height:100%;border-radius:99px;background:var(--brand)}
 
-.btn{
-  width:100%; padding:12px; border-radius:7px; border:1px solid var(--route);
-  background:var(--route-soft); color:var(--route); cursor:pointer;
-  font-family:var(--mono); font-size:12px; letter-spacing:.1em; text-transform:uppercase; font-weight:500;
-  transition:background .15s;
-}
-.btn:hover{background:rgba(79,216,238,.28)}
-.btn.ghost{border-color:var(--line2); background:transparent; color:var(--muted)}
-.btn.ghost:hover{background:var(--panel3); color:var(--text)}
+table.dec{width:100%;border-collapse:collapse;font-size:12px}
+table.dec td{padding:6px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+table.dec td:first-child{color:var(--muted);width:46%;padding-right:10px}
+table.dec td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+table.dec td.wide{text-align:left;color:var(--ink)}
+code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radius:4px;border:1px solid var(--rule)}
 
-/* prediction */
-.pred{
-  background:linear-gradient(150deg,var(--panel2),#16283A); border:1px solid var(--line2);
-  border-radius:10px; padding:15px; margin:14px 0;
-}
-.pred .num{font-family:var(--disp); font-size:44px; font-weight:700; letter-spacing:-.03em; line-height:1}
-.pred .of{font-family:var(--mono); font-size:12px; color:var(--dim)}
-.bar{height:8px; background:var(--panel3); border-radius:9px; overflow:hidden; margin-top:11px}
-.bar i{display:block; height:100%; border-radius:9px; transition:width .35s ease}
+.note{border-left:3px solid var(--amber);background:var(--card2);padding:9px 12px;
+      border-radius:0 8px 8px 0;font-size:12px;color:var(--ink2);margin:12px 0;line-height:1.55}
+.note.bad{border-left-color:var(--coral)}
+.note.good{border-left-color:#2E7D32}
+.note.plain{border-left-color:var(--rule2)}
+.note b{color:var(--ink)}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border-radius:5px;
+       font:9.5px/1.6 var(--mono);border:1px solid var(--rule2);background:var(--cream)}
+.badge.inferred{border-color:var(--amber);background:#FFF6DF;color:#6B5200}
 
-/* drivers */
-.drv{margin-bottom:10px}
-.drv .r1{display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12px}
-.drv .nm{font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.drv .rank{color:var(--dim); font-family:var(--mono); font-size:10px; margin-right:6px}
-.drv .val{font-family:var(--mono); font-size:11.5px; color:var(--muted); flex:none}
-.drv .track{height:5px; background:var(--panel3); border-radius:9px; overflow:hidden; margin-top:4px}
-.drv .track i{display:block; height:100%; background:var(--route); border-radius:9px; transition:width .35s ease}
+/* --------------------------------------------------------------------- map */
+.mapwrap{position:relative;min-width:0}
+#map{position:absolute;inset:0;background:var(--cream)}
+/* the basemap stays black and white; colour belongs to the data.
+   Scoped to the basemap layer only — the walkability canvas lives in its own
+   pane above it and must keep its hue. */
+.basemap-bw{filter:grayscale(1) contrast(.9) brightness(1.05)}
+.leaflet-container{background:var(--cream);font-family:var(--sans)}
+.leaflet-bar a{color:var(--ink2)}
 
-table.dec{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.5px}
-table.dec td{padding:5px 0; border-bottom:1px solid var(--line)}
-table.dec td:last-child{text-align:right; color:var(--muted)}
-table.dec tr:last-child td{border-bottom:0; font-weight:600; color:var(--text); padding-top:8px}
+.ov{position:absolute;z-index:620;background:var(--card);border:1px solid var(--rule);
+    border-radius:10px;box-shadow:var(--sh)}
+.ov-help{left:12px;top:12px;padding:9px 12px;font-size:12px;max-width:340px;color:var(--ink2)}
+.ov-help b{color:var(--ink)}
+.ov-help kbd{font:10px var(--mono);border:1px solid var(--rule2);border-bottom-width:2px;
+             border-radius:4px;padding:1px 5px;background:var(--card2)}
+.mapbtns{position:absolute;right:12px;top:12px;z-index:620;display:flex;flex-direction:column;
+         gap:6px;align-items:flex-end}
+.mapbtns .btn{box-shadow:var(--sh);background:var(--card)}
+.mapbtns .btn[aria-pressed=true]{background:var(--brand);border-color:var(--brand);color:#fff}
+.ov-legend{left:12px;bottom:22px;padding:10px 12px;width:262px}
+.ov-legend .lt{font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;
+               color:var(--muted);margin-bottom:8px}
+.legend{display:flex;height:11px;border-radius:3px;overflow:hidden}
+.legend i{flex:1}
+.legend-ax{display:flex;justify-content:space-between;font:9.5px/1 var(--mono);color:var(--muted);margin-top:6px}
+.legend-note{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.45}
+.routekey{display:flex;flex-direction:column;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--rule)}
+.routekey div{display:flex;align-items:center;gap:7px;font:10px/1 var(--mono);color:var(--ink2)}
+.routekey .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;flex:0 0 auto}
 
-/* map overlays */
-.ov{
-  position:absolute; z-index:900; background:rgba(17,26,39,.93);
-  border:1px solid var(--line); border-radius:9px; padding:11px 13px;
-  backdrop-filter:blur(9px); font-size:12px;
-}
-.ov-legend{left:12px; bottom:20px; width:210px}
-.ov-help{left:12px; top:12px; max-width:280px; color:var(--muted); line-height:1.45}
-.ov-help b{color:var(--text); font-weight:600}
-.ov-help kbd{
-  font-family:var(--mono); font-size:10.5px; background:var(--panel3);
-  border:1px solid var(--line2); border-radius:4px; padding:1px 5px; color:var(--text);
-}
-.mapbtns{position:absolute; right:12px; top:12px; z-index:900; display:flex; flex-direction:column; gap:7px}
-.mapbtn{
-  padding:8px 11px; border-radius:7px; border:1px solid var(--line);
-  background:rgba(17,26,39,.93); color:var(--muted); cursor:pointer;
-  font-family:var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
-  backdrop-filter:blur(9px);
-}
-.mapbtn:hover{color:var(--text); border-color:var(--line2)}
-.mapbtn[aria-pressed="true"]{color:var(--route); border-color:var(--route)}
+.leaflet-popup-content-wrapper{border-radius:10px;background:var(--card);color:var(--ink);box-shadow:var(--sh)}
+.leaflet-popup-content{margin:11px 13px;font-size:12.5px}
+.leaflet-popup-tip{background:var(--card)}
+.pop h4{margin:0 0 3px;font-size:13.5px}
+.pop .sub{font:10px/1.4 var(--mono);color:var(--muted);margin-bottom:8px;word-break:break-all}
+.pop table{width:100%;border-collapse:collapse;font-size:11.5px}
+.pop td{padding:2px 0;border-bottom:1px solid var(--rule)}
+.pop td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 
-.leaflet-container{background:#070B12; font-family:var(--sans)}
-.leaflet-control-attribution{background:rgba(10,15,24,.82)!important; color:var(--dim)!important; font-size:9.5px!important}
-.leaflet-control-attribution a{color:var(--muted)!important}
-.leaflet-bar a{background:var(--panel2)!important; color:var(--text)!important; border-color:var(--line)!important}
-.leaflet-bar a:hover{background:var(--panel3)!important}
-.leaflet-tooltip.tip{
-  background:rgba(10,15,24,.95); border:1px solid var(--line2); color:var(--text);
-  font-family:var(--mono); font-size:11px; border-radius:6px; box-shadow:none; padding:6px 9px;
-}
-.leaflet-tooltip.tip::before{display:none}
+.marker-ab{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  font:12px/1 var(--sans);font-weight:700;color:#fff;border:2px solid var(--card);
+  box-shadow:0 2px 7px rgba(20,18,14,.35)}
+.marker-ab.a{background:var(--brand)}
+.marker-ab.b{background:var(--ink)}
 
-.note{font-size:11.5px; color:var(--dim); line-height:1.5; margin:10px 0 0}
-.note code{font-family:var(--mono); font-size:11px; color:var(--muted)}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--rule2);
+      border-top-color:var(--brand);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-1px}
+@keyframes sp{to{transform:rotate(360deg)}}
 
-/* ─── responsive ──────────────────────────────────────────────────────── */
-@media (max-width:900px){
-  body{overflow:auto}
-  .shell{height:auto; min-height:100%}
-  .split{grid-template-columns:1fr; grid-template-rows:auto auto}
-  .side{border-right:0; border-top:1px solid var(--line); order:2}
-  .mapwrap{order:1; height:58vh; min-height:340px; position:relative}
-  .pane{max-height:none; overflow:visible}
-  .ov-help{display:none}
-  .brand{width:100%}
+@media (max-width:940px){
+  .split{grid-template-columns:1fr;grid-template-rows:46vh 1fr}
+  .side{border-right:0;border-bottom:1px solid var(--rule)}
+  .stats .stat{display:none}
 }
 </style>
 </head>
 <body>
 <div class="shell">
 
-  <!-- ══ topbar ══════════════════════════════════════════════════════ -->
   <header class="topbar">
     <div class="brand">
-      <h1>Manila Walkability</h1>
-      <span class="sub">H3 · res 9 · transect explorer</span>
+      <b>Manila <i>Walkability</i></b>
+      <span>OpenStreetMap &middot; H3 res-9</span>
     </div>
-    <div class="stat"><b id="s-seg">—</b><span>segments</span></div>
-    <div class="stat"><b id="s-cell">—</b><span>res-9 cells</span></div>
-    <div class="stat"><b id="s-r2">—</b><span>test R²</span></div>
-    <div class="chip" id="model-chip"><span class="dot"></span><span id="model-txt">loading model…</span></div>
+    <div class="stats">
+      <div class="stat"><b id="s-seg">—</b><span>street segments</span></div>
+      <div class="stat"><b id="s-cell">—</b><span>res-9 cells</span></div>
+      <div class="stat"><b id="s-area">—</b><span>km&sup2; mapped</span></div>
+      <div class="chip" id="model-chip"><span class="dot"></span><span id="model-txt">loading…</span></div>
+      <div class="chip" id="test-chip" title="The ported model is re-checked against scikit-learn in your browser on load."><span class="dot"></span><span id="test-txt">self-test…</span></div>
+    </div>
   </header>
 
   <div class="split">
-    <!-- ══ sidebar ═══════════════════════════════════════════════════ -->
     <aside class="side">
       <div class="tabs" role="tablist">
-        <button role="tab" id="tab-route" aria-controls="pane-route" aria-selected="true">Route</button>
-        <button role="tab" id="tab-model" aria-controls="pane-model" aria-selected="false">Predict</button>
-        <button role="tab" id="tab-about" aria-controls="pane-about" aria-selected="false">Method</button>
+        <button id="tab-route"  role="tab" aria-selected="true"  aria-controls="pane-route">Route</button>
+        <button id="tab-street" role="tab" aria-selected="false" aria-controls="pane-street">Street</button>
+        <button id="tab-model"  role="tab" aria-selected="false" aria-controls="pane-model">Predict</button>
+        <button id="tab-about"  role="tab" aria-selected="false" aria-controls="pane-about">Method</button>
       </div>
 
-      <!-- ─── ROUTE ─── -->
+      <!-- ---------------------------------------------------------- ROUTE -->
       <section class="pane on" id="pane-route" role="tabpanel" aria-labelledby="tab-route">
-        <p class="eyebrow">Endpoints</p>
-        <p class="hint">Click anywhere on the map to drop <b>A</b>, click again for <b>B</b>. Clicks snap to the nearest surveyed street.</p>
+        <h3>Walking route</h3>
+        <p>Click the map to drop <b>A</b>, click again for <b>B</b>. Both snap to the nearest real street.</p>
 
         <div class="ends">
-          <div class="end a"><div class="k">A — origin</div><div class="v" id="a-name">not set</div><div class="h3i" id="a-h3">—</div></div>
-          <div class="end b"><div class="k">B — destination</div><div class="v" id="b-name">not set</div><div class="h3i" id="b-h3">—</div></div>
+          <div class="end" id="end-a"><div class="k">A — origin</div><div class="v" id="a-name">not set</div><div class="h3i" id="a-h3">—</div></div>
+          <div class="end" id="end-b"><div class="k">B — destination</div><div class="v" id="b-name">not set</div><div class="h3i" id="b-h3">—</div></div>
+        </div>
+        <div class="btnrow" style="margin-bottom:14px">
+          <button class="btn" id="btn-setA" aria-pressed="false">Set A</button>
+          <button class="btn" id="btn-setB" aria-pressed="false">Set B</button>
+          <button class="btn" id="btn-swap">Swap</button>
+          <button class="btn" id="btn-clear">Clear</button>
         </div>
 
-        <div class="card">
-          <div class="grid2">
-            <div class="metric"><div class="lbl">Mean walk score</div><div class="num" id="r-score">—</div></div>
-            <div class="metric"><div class="lbl">Path distance</div><div class="num" id="r-dist">—</div></div>
-          </div>
-          <div class="grid2" style="margin-top:12px">
-            <div class="metric"><div class="lbl">Straight line</div><div class="num" id="r-crow" style="font-size:17px">—</div></div>
-            <div class="metric"><div class="lbl">Cells traversed</div><div class="num" id="r-cells" style="font-size:17px">—</div></div>
-          </div>
+        <div id="route-status" class="note" hidden></div>
+
+        <div id="routes-wrap" hidden>
+          <h3>Alternatives</h3>
+          <p>Three routes over the real pedestrian network. Click one to draw it and see its profile.</p>
+          <div class="routes" id="routes"></div>
         </div>
 
-        <p class="eyebrow">Walk profile</p>
-        <div class="tape-wrap">
-          <div class="tape-scroll"><svg class="tape" id="tape" height="66" width="100%" role="img" aria-label="Walkability profile along the route"></svg></div>
-          <div class="tape-axis"><span id="tape-a">A</span><span id="tape-b">B</span></div>
-          <p class="note" id="tape-note">Each hexagon is one H3 res-9 cell along the path. Faded hexagons are inverse-distance estimates for cells with no surveyed segment.</p>
+        <div id="profile-wrap" hidden>
+          <div class="hr"></div>
+          <h3>Walk profile</h3>
+          <p>Every segment along the selected route — width by distance, height and colour by walkability.</p>
+          <div class="tape-scroll"><svg class="tape" id="tape" height="80" role="img" aria-label="Walkability along the selected route"></svg></div>
+          <div class="tape-axis"><span>A</span><span id="tape-mid"></span><span>B</span></div>
+          <table class="dec" id="route-table" style="margin-top:14px"><tbody></tbody></table>
         </div>
-
-        <button class="btn ghost" id="btn-clear" style="margin-top:14px">Clear route</button>
       </section>
 
-      <!-- ─── MODEL ─── -->
+      <!-- --------------------------------------------------------- STREET -->
+      <section class="pane" id="pane-street" role="tabpanel" aria-labelledby="tab-street">
+        <h3>Selected street</h3>
+        <p><b>Click</b> a street for that block. <b>Double-click</b> for the whole named street.</p>
+        <div id="street-empty" class="note plain">Nothing selected yet — click any street on the map.</div>
+        <div id="street-body" hidden></div>
+      </section>
+
+      <!-- -------------------------------------------------------- PREDICT -->
       <section class="pane" id="pane-model" role="tabpanel" aria-labelledby="tab-model">
-        <p class="eyebrow">Categorical features</p>
-        <p class="hint">Five categorical columns are one-hot encoded (<code>drop_first</code>); their label-encoded partners fill in automatically.</p>
+        <h3>Score a street by hand</h3>
+        <p>Enter the five measured features; the normalised terms follow automatically. Clicking a street on the map loads it here.</p>
 
-        <div class="field">
-          <label for="f-name">name <span class="unit" id="e-name">—</span></label>
-          <select id="f-name"></select>
-        </div>
-        <div class="field">
-          <label for="f-osmid">osmid <span class="unit" id="e-osmid">—</span></label>
-          <select id="f-osmid"></select>
-        </div>
-        <div class="field">
-          <label for="f-h3">h3_res9 <span class="unit" id="e-h3">—</span></label>
-          <select id="f-h3"></select>
-        </div>
-        <div class="field">
-          <label for="f-highway">highway <span class="unit" id="e-highway">—</span></label>
-          <select id="f-highway"></select>
-        </div>
-        <div class="field">
-          <label for="f-sidewalk">sidewalk <span class="unit" id="e-sidewalk">—</span></label>
-          <select id="f-sidewalk"></select>
-        </div>
-
-        <p class="eyebrow">Measured features</p>
-        <div class="field">
-          <label for="f-poi">poi_count_400m <span class="unit">count</span></label>
-          <div class="rowin"><input type="range" id="f-poi-r" min="0" max="149" step="1"><input type="number" id="f-poi" min="0" max="149" step="1"></div>
-        </div>
-        <div class="field">
-          <label for="f-dist">dist_to_transit_m <span class="unit">metres</span></label>
-          <div class="rowin"><input type="range" id="f-dist-r" min="10" max="1999" step="1"><input type="number" id="f-dist" min="1" step="0.001"></div>
-        </div>
-        <div class="field">
-          <label for="f-idn">intersection_density <span class="unit">per km²</span></label>
-          <div class="rowin"><input type="range" id="f-idn-r" min="50" max="400" step="0.1"><input type="number" id="f-idn" step="0.0001"></div>
-        </div>
+        <div class="field"><label for="f-hw">highway</label><select id="f-hw"></select></div>
+        <div class="field"><label for="f-sw">sidewalk</label><select id="f-sw"></select></div>
+        <div class="field"><label for="f-poi">poi_count_400m</label>
+          <div class="rowin"><input type="range" id="f-poi-r" min="0" max="800" step="1"><input type="number" id="f-poi" min="0" step="1"></div></div>
+        <div class="field"><label for="f-dist">dist_to_transit_m</label>
+          <div class="rowin"><input type="range" id="f-dist-r" min="25" max="1750" step="1"><input type="number" id="f-dist" min="1" step="0.1"></div></div>
+        <div class="field"><label for="f-idn">intersection_density</label>
+          <div class="rowin"><input type="range" id="f-idn-r" min="0" max="1050" step="1"><input type="number" id="f-idn" step="0.1"></div></div>
 
         <div class="derived">
-          <div class="top">
-            <span class="eyebrow" style="margin:0">Derived</span>
-            <label class="toggle"><input type="checkbox" id="auto-derive" checked> auto</label>
-          </div>
+          <div class="top"><span>derived terms</span>
+            <label class="ck"><input type="checkbox" id="f-auto" checked> auto</label></div>
           <div class="grid2">
             <div class="field" style="margin:0"><label for="f-P">P_norm</label><input type="number" id="f-P" step="0.0001" readonly></div>
             <div class="field" style="margin:0"><label for="f-T">T_norm</label><input type="number" id="f-T" step="0.0001" readonly></div>
@@ -349,64 +312,66 @@ table.dec tr:last-child td{border-bottom:0; font-weight:600; color:var(--text); 
           </div>
         </div>
 
-        <label class="toggle" style="margin-bottom:12px"><input type="checkbox" id="use-scaled" checked> feed robust-scaled vector to score()</label>
-        <button class="btn" id="btn-predict">Run prediction</button>
-
-        <div class="pred" id="pred-box" hidden>
-          <div class="lbl" style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)">Predicted true_walkability_score_v2</div>
+        <div class="pred">
+          <div style="font:9.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)">Predicted walkability</div>
           <div class="num" id="pred-num">—</div>
           <div class="of" id="pred-of"></div>
           <div class="bar"><i id="pred-bar" style="width:0%"></i></div>
         </div>
 
-        <p class="eyebrow">Top 5 drivers</p>
-        <div id="drivers"></div>
-
-        <p class="eyebrow" style="margin-top:18px">Score decomposition</p>
-        <table class="dec" id="decomp"><tbody></tbody></table>
-        <p class="note" id="decomp-note"></p>
+        <div class="hr"></div>
+        <h3>Both models, same input</h3>
+        <table class="dec" id="compare"><tbody></tbody></table>
       </section>
 
-      <!-- ─── ABOUT ─── -->
+      <!-- --------------------------------------------------------- METHOD -->
       <section class="pane" id="pane-about" role="tabpanel" aria-labelledby="tab-about">
-        <p class="eyebrow">Pipeline</p>
-        <table class="dec"><tbody id="meta-tbl"></tbody></table>
+        <h3>Scoring model</h3>
+        <div class="field" style="margin-top:8px">
+          <label for="f-model">active model</label>
+          <select id="f-model">
+            <option value="rule">Analytic rule — rho &times; (40P + 30T + 30I)</option>
+            <option value="gbm">Gradient Boosting — ported from winning_model.pkl</option>
+          </select>
+        </div>
+        <div id="model-note"></div>
 
-        <p class="eyebrow" style="margin-top:18px">Feature vector</p>
-        <table class="dec"><tbody>
-          <tr><td>numeric (robust-scaled)</td><td>12</td></tr>
-          <tr><td>osmid one-hot</td><td>999</td></tr>
-          <tr><td>name one-hot</td><td>493</td></tr>
-          <tr><td>h3_res9 one-hot</td><td>999</td></tr>
-          <tr><td>highway one-hot</td><td>7</td></tr>
-          <tr><td>sidewalk one-hot</td><td>3</td></tr>
-          <tr><td>total</td><td>2513</td></tr>
-        </tbody></table>
+        <div class="hr"></div>
+        <h3>Layers</h3>
+        <div class="btnrow" style="margin-top:8px">
+          <button class="btn" id="mb-streets" aria-pressed="true">Streets</button>
+          <button class="btn" id="mb-hex"     aria-pressed="false">H3 hexes</button>
+          <button class="btn" id="mb-bound"   aria-pressed="true">City boundary</button>
+          <button class="btn" id="mb-legal"   aria-pressed="false">Legal boundary</button>
+          <button class="btn" id="mb-survey"  aria-pressed="false">Original survey</button>
+        </div>
 
-        <p class="eyebrow" style="margin-top:18px">Notes</p>
-        <p class="note" id="about-notes"></p>
+        <div class="hr"></div>
+        <h3>Where the numbers come from</h3>
+        <table class="dec" id="meta-tbl"><tbody></tbody></table>
+
+        <div class="hr"></div>
+        <h3>Honest caveats</h3>
+        <div id="caveats"></div>
       </section>
     </aside>
 
-    <!-- ══ map ═══════════════════════════════════════════════════════ -->
     <div class="mapwrap">
       <div id="map"></div>
-
       <div class="ov ov-help">
-        <b>Click the map</b> to set A, then B. The route follows the H3 res-9 grid.
-        Press <kbd>Esc</kbd> to clear.
+        <b>Click any street</b> to score it &middot; <b>double-click</b> for the whole
+        avenue &middot; in the Route tab, two clicks set <kbd>A</kbd> then <kbd>B</kbd>.
       </div>
-
       <div class="mapbtns">
-        <button class="mapbtn" id="mb-hex" aria-pressed="true">Hex fill</button>
-        <button class="mapbtn" id="mb-bound" aria-pressed="true">Boundary</button>
-        <button class="mapbtn" id="mb-fit">Fit city</button>
+        <button class="btn" id="mb-fit">Fit Manila</button>
+        <button class="btn" id="mb-colour" aria-pressed="true">Colour: by rank</button>
       </div>
-
       <div class="ov ov-legend">
-        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)">Walkability score</div>
+        <div class="lt" id="lg-title">Walkability</div>
         <div class="legend" id="legend"></div>
-        <div class="legend-ax"><span id="lg-lo">0</span><span id="lg-hi">71</span></div>
+        <div class="legend-ax"><span id="lg-lo">—</span><span id="lg-hi">—</span></div>
+        <div class="legend-note" id="lg-note"></div>
+        <div class="routekey" id="routekey" hidden></div>
       </div>
     </div>
   </div>
@@ -416,584 +381,966 @@ table.dec tr:last-child td{border-bottom:0; font-weight:600; color:var(--text); 
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
 <script src="data.js"></script>
+<script src="manila.js"></script>
 <script src="model.js"></script>
+<script src="model_gbm.js"></script>
 <script>
-(function(){
+/* ===========================================================================
+   Manila Walkability — application logic
+   =========================================================================== */
+(function () {
 'use strict';
 
-/* ═══════════════════════════════════════════════════════════════════════
-   0 · guards
-   ═══════════════════════════════════════════════════════════════════════ */
-var D = window.WALK_DATA;
-if(!D){ document.body.innerHTML='<p style="padding:30px;font-family:monospace">data.js failed to load — keep index.html, data.js and model.js in the same folder.</p>'; return; }
-var H3 = window.h3;
-if(!H3){ console.warn('h3-js unavailable'); }
+var M = window.MANILA, W = window.WALK_DATA, H3 = window.h3, GBM = window.MODEL_GBM;
 
-var SEG = D.segments, SC = D.schema;
-var IX = {}; SC.forEach(function(k,i){ IX[k]=i; });
+var RAMP = ['#A399C9','#8F84BC','#7B6FAF','#675BA1','#534792','#40347A','#2C2358'];
+var ROUTE_STYLES = [
+  {key:'walk',    name:'Most walkable', colour:'#2E7D32', dash:null,     alpha:8.0},
+  {key:'balance', name:'Balanced',      colour:'#B8860B', dash:'11,7',   alpha:2.0},
+  {key:'short',   name:'Shortest',      colour:'#F26B6C', dash:'2.5,6',  alpha:0.0}
+];
+var WALK_KMH = 4.8;
 
-/* ═══════════════════════════════════════════════════════════════════════
-   1 · colour ramp
-   ═══════════════════════════════════════════════════════════════════════ */
-var RAMP = ['#3B1F5C','#7E2F6B','#C24A5C','#EC8B3F','#F5E06B'];
-var SMIN = Infinity, SMAX = -Infinity;
-SEG.forEach(function(s){ var v=s[IX.score]; if(v<SMIN)SMIN=v; if(v>SMAX)SMAX=v; });
+function $(id){ return document.getElementById(id); }
+function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 
-function hex2rgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
-var RGB = RAMP.map(hex2rgb);
+/* ---------------------------------------------------------------- decoding */
+var PREC = M.meta.precision;
 
-function colourFor(v){
-  var t = (v - SMIN)/(SMAX - SMIN);
-  t = t<0?0:t>1?1:t;
-  var f = t*(RGB.length-1), i = Math.floor(f), k = f-i;
-  if(i>=RGB.length-1) return RAMP[RGB.length-1];
-  var a=RGB[i], b=RGB[i+1];
-  return 'rgb('+Math.round(a[0]+(b[0]-a[0])*k)+','+Math.round(a[1]+(b[1]-a[1])*k)+','+Math.round(a[2]+(b[2]-a[2])*k)+')';
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   2 · decode H3 → geometry
-   ═══════════════════════════════════════════════════════════════════════ */
-var byCell = Object.create(null);   // h3 → segment row
-var pts = [];                       // {lat,lng,i}
-SEG.forEach(function(s,i){
-  var c = s[IX.h3];
-  byCell[c] = s;
-  if(H3){
-    try{
-      var ll = H3.cellToLatLng(c);
-      pts.push({lat:ll[0], lng:ll[1], i:i});
-      s.__ll = ll;
-    }catch(e){}
+var NODES = (function () {
+  var a = M.nodes, out = new Float64Array(a.length), la = 0, lo = 0;
+  for (var i = 0; i < a.length; i += 2) {
+    la += a[i]; lo += a[i+1];
+    out[i] = la / PREC; out[i+1] = lo / PREC;
   }
-});
+  return out;
+})();
+var NODE_COUNT = NODES.length / 2;
 
-function haversine(a1,o1,a2,o2){
-  var R=6371000, r=Math.PI/180;
-  var dA=(a2-a1)*r, dO=(o2-o1)*r;
-  var x=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(a1*r)*Math.cos(a2*r)*Math.sin(dO/2)*Math.sin(dO/2);
-  return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));
+var S = M.streets, N = S.length;
+var F = {NAME:0,HW:1,SW:2,SWSRC:3,POI:4,DIST:5,IDN:6,SCORE:7,GBM:8,A:9,B:10,LEN:11,GEOM:12};
+var HW = M.hwCodes, SW = M.swCodes;
+
+var GEOM = new Array(N);
+for (var gi = 0; gi < N; gi++) {
+  var g = S[gi][F.GEOM], pts = new Array(g.length/2), pa = 0, po = 0;
+  for (var j = 0, k = 0; j < g.length; j += 2, k++) {
+    pa += g[j]; po += g[j+1];
+    pts[k] = [pa/PREC, po/PREC];
+  }
+  GEOM[gi] = pts;
 }
 
-/* convex hull (monotone chain) over cell centroids → city outline */
-function hull(P){
-  if(P.length<3) return P.slice();
-  var s = P.slice().sort(function(a,b){ return a.lng-b.lng || a.lat-b.lat; });
-  var cr=function(o,a,b){ return (a.lng-o.lng)*(b.lat-o.lat)-(a.lat-o.lat)*(b.lng-o.lng); };
-  var lo=[],up=[],i;
-  for(i=0;i<s.length;i++){ while(lo.length>=2 && cr(lo[lo.length-2],lo[lo.length-1],s[i])<=0) lo.pop(); lo.push(s[i]); }
-  for(i=s.length-1;i>=0;i--){ while(up.length>=2 && cr(up[up.length-2],up[up.length-1],s[i])<=0) up.pop(); up.push(s[i]); }
-  lo.pop(); up.pop();
-  return lo.concat(up);
+/* ----------------------------------------------------- active score + rank */
+var scoreField = 'rule';
+var SCORE = new Float64Array(N), RANK = new Float64Array(N);
+
+function useModel(which) {
+  scoreField = which;
+  var col = (which === 'gbm') ? F.GBM : F.SCORE;
+  for (var i = 0; i < N; i++) SCORE[i] = S[i][col];
+  var idx = new Array(N);
+  for (i = 0; i < N; i++) idx[i] = i;
+  idx.sort(function (a,b) { return SCORE[a] - SCORE[b]; });
+  for (var r = 0; r < N; r++) RANK[idx[r]] = N > 1 ? r/(N-1) : 0.5;
+}
+useModel('rule');
+
+var colourByRank = true;
+function ch(h,o){ return parseInt(h.substr(o,2),16); }
+function ramp01(t) {
+  t = clamp(t,0,1);
+  var x = t*(RAMP.length-1), i = Math.min(RAMP.length-2, Math.floor(x)), f = x-i;
+  var a = RAMP[i], b = RAMP[i+1];
+  return 'rgb(' + Math.round(ch(a,1)+(ch(b,1)-ch(a,1))*f) + ',' +
+                  Math.round(ch(a,3)+(ch(b,3)-ch(a,3))*f) + ',' +
+                  Math.round(ch(a,5)+(ch(b,5)-ch(a,5))*f) + ')';
+}
+function statsFor(){ return M.stats[scoreField === 'gbm' ? 'gbm' : 'score']; }
+function breaksFor(){ return M.breaks[scoreField === 'gbm' ? 'gbm' : 'score']; }
+function colourOf(i){
+  if (colourByRank) return ramp01(RANK[i]);
+  var st = statsFor();
+  return ramp01((SCORE[i]-st.min)/Math.max(1e-9, st.max-st.min));
+}
+/* colour for a value that is not one of the indexed segments */
+function colourForScore(v) {
+  var st = statsFor();
+  if (!colourByRank) return ramp01((v-st.min)/Math.max(1e-9, st.max-st.min));
+  var br = breaksFor();
+  if (v <= br[0]) return ramp01(0);
+  for (var i = 0; i < br.length-1; i++) {
+    if (v <= br[i+1]) return ramp01((i + (v-br[i])/Math.max(1e-9, br[i+1]-br[i]))/(br.length-1));
+  }
+  return ramp01(1);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   3 · map
-   ═══════════════════════════════════════════════════════════════════════ */
-var map = L.map('map',{ preferCanvas:true, zoomControl:true, minZoom:10, maxZoom:18 });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-  attribution:'&copy; OpenStreetMap contributors &copy; CARTO · H3 res-9 · walkability model',
-  subdomains:'abcd', maxZoom:19
+/* -------------------------------------------------- spatial index (snapping) */
+var CELL = 0.0022;                                     /* ~245 m */
+var GRID = new Map();
+(function buildIndex() {
+  function put(la, lo, i) {
+    var k = Math.floor(la/CELL) + ':' + Math.floor(lo/CELL), arr = GRID.get(k);
+    if (!arr) GRID.set(k, [i]);
+    else if (arr[arr.length-1] !== i) arr.push(i);
+  }
+  for (var i = 0; i < N; i++) {
+    var p = GEOM[i];
+    for (var j = 0; j < p.length; j++) {
+      put(p[j][0], p[j][1], i);
+      if (j < p.length-1) {
+        var dla = p[j+1][0]-p[j][0], dlo = p[j+1][1]-p[j][1];
+        var steps = Math.floor(Math.max(Math.abs(dla), Math.abs(dlo))/CELL);
+        for (var s = 1; s <= steps; s++)
+          put(p[j][0]+dla*s/(steps+1), p[j][1]+dlo*s/(steps+1), i);
+      }
+    }
+  }
+})();
+
+var MPD_LAT = 110574, MPD_LON = 111320*Math.cos(14.5995*Math.PI/180);
+function metresBetween(a1,o1,a2,o2) {
+  var x = (o2-o1)*MPD_LON, y = (a2-a1)*MPD_LAT;
+  return Math.sqrt(x*x+y*y);
+}
+function pointToSeg(la, lo, a, b) {
+  var ax = (a[1]-lo)*MPD_LON, ay = (a[0]-la)*MPD_LAT;
+  var bx = (b[1]-lo)*MPD_LON, by = (b[0]-la)*MPD_LAT;
+  var dx = bx-ax, dy = by-ay, L = dx*dx+dy*dy;
+  var t = L === 0 ? 0 : clamp(-(ax*dx+ay*dy)/L, 0, 1);
+  var px = ax+dx*t, py = ay+dy*t;
+  return {d: Math.sqrt(px*px+py*py), ll:[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]};
+}
+function nearestStreet(la, lo, maxM) {
+  maxM = maxM || 220;
+  var reach = Math.ceil(maxM/(CELL*MPD_LAT)) + 1;
+  var bi = Math.floor(la/CELL), bj = Math.floor(lo/CELL);
+  var best = null, seen = new Set();
+  for (var di = -reach; di <= reach; di++) for (var dj = -reach; dj <= reach; dj++) {
+    var arr = GRID.get((bi+di) + ':' + (bj+dj));
+    if (!arr) continue;
+    for (var n = 0; n < arr.length; n++) {
+      var i = arr[n];
+      if (seen.has(i)) continue;
+      seen.add(i);
+      var p = GEOM[i];
+      for (var j = 0; j < p.length-1; j++) {
+        var r = pointToSeg(la, lo, p[j], p[j+1]);
+        if (!best || r.d < best.d) best = {d:r.d, i:i, ll:r.ll};
+      }
+    }
+  }
+  return (best && best.d <= maxM) ? best : null;
+}
+
+/* ------------------------------------------------------------ routing graph */
+var ADJ_HEAD = new Int32Array(NODE_COUNT).fill(-1);
+var ADJ_NEXT = new Int32Array(N*2), ADJ_TO = new Int32Array(N*2), ADJ_ST = new Int32Array(N*2);
+(function buildGraph() {
+  var e = 0;
+  function add(from, to, st) {
+    ADJ_TO[e] = to; ADJ_ST[e] = st; ADJ_NEXT[e] = ADJ_HEAD[from]; ADJ_HEAD[from] = e; e++;
+  }
+  for (var i = 0; i < N; i++) {
+    var a = S[i][F.A], b = S[i][F.B];
+    if (a !== b) { add(a,b,i); add(b,a,i); }
+  }
+})();
+
+function Heap(){ this.p = []; this.v = []; }
+Heap.prototype.push = function (pri, val) {
+  var p = this.p, v = this.v, i = p.length, t;
+  p.push(pri); v.push(val);
+  while (i > 0) {
+    var par = (i-1) >> 1;
+    if (p[par] <= p[i]) break;
+    t = p[i]; p[i] = p[par]; p[par] = t;
+    t = v[i]; v[i] = v[par]; v[par] = t;
+    i = par;
+  }
+};
+Heap.prototype.pop = function () {
+  var p = this.p, v = this.v, top = v[0], last = v.length-1, t;
+  p[0] = p[last]; v[0] = v[last]; p.pop(); v.pop();
+  var i = 0, n = v.length;
+  for (;;) {
+    var l = 2*i+1, r = l+1, m = i;
+    if (l < n && p[l] < p[m]) m = l;
+    if (r < n && p[r] < p[m]) m = r;
+    if (m === i) break;
+    t = p[i]; p[i] = p[m]; p[m] = t;
+    t = v[i]; v[i] = v[m]; v[m] = t;
+    i = m;
+  }
+  return top;
+};
+Heap.prototype.size = function () { return this.v.length; };
+
+var gDist = new Float64Array(NODE_COUNT), gPrevN = new Int32Array(NODE_COUNT),
+    gPrevE = new Int32Array(NODE_COUNT), gMark = new Int32Array(NODE_COUNT),
+    gDone = new Int32Array(NODE_COUNT), gStamp = 0;
+
+function nodeLat(n){ return NODES[n*2]; }
+function nodeLon(n){ return NODES[n*2+1]; }
+
+/* A* minimising  sum( length x (1 + alpha x (1 - rank)) ).
+   The multiplier bottoms out at 1, so straight-line distance stays admissible. */
+function astar(src, dst, alpha) {
+  gStamp++;
+  var h = new Heap();
+  gDist[src] = 0; gPrevN[src] = -1; gPrevE[src] = -1; gMark[src] = gStamp;
+  h.push(0, src);
+  var dLat = nodeLat(dst), dLon = nodeLon(dst), guard = 0;
+  while (h.size()) {
+    if (++guard > 2000000) return null;
+    var u = h.pop();
+    if (gDone[u] === gStamp) continue;
+    gDone[u] = gStamp;
+    if (u === dst) break;
+    for (var e = ADJ_HEAD[u]; e !== -1; e = ADJ_NEXT[e]) {
+      var v = ADJ_TO[e], st = ADJ_ST[e];
+      var nd = gDist[u] + S[st][F.LEN]*(1 + alpha*(1 - RANK[st]));
+      if (gMark[v] !== gStamp || nd < gDist[v]) {
+        gMark[v] = gStamp; gDist[v] = nd; gPrevN[v] = u; gPrevE[v] = st;
+        h.push(nd + metresBetween(nodeLat(v), nodeLon(v), dLat, dLon), v);
+      }
+    }
+  }
+  if (gDone[dst] !== gStamp) return null;
+  var edges = [], cur = dst;
+  while (cur !== src) {
+    if (gPrevE[cur] < 0 || edges.length > 30000) return null;
+    edges.push(gPrevE[cur]);
+    cur = gPrevN[cur];
+  }
+  edges.reverse();
+  return edges;
+}
+
+function summarise(edges) {
+  var len = 0, wsum = 0;
+  for (var i = 0; i < edges.length; i++) {
+    var L = S[edges[i]][F.LEN];
+    len += L; wsum += SCORE[edges[i]]*L;
+  }
+  return {edges:edges, len:len, mean: len ? wsum/len : 0,
+          mins: len/1000/WALK_KMH*60, set:new Set(edges)};
+}
+
+/* ---------------------------------------------------------------------- map */
+var map = L.map('map', {preferCanvas:true, minZoom:11, maxZoom:19, doubleClickZoom:false,
+                        zoomControl:false, zoomSnap:0.25, zoomDelta:0.5});
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains:'abcd', maxZoom:19, className:'basemap-bw'
 }).addTo(map);
 
-var hexLayer   = L.layerGroup().addTo(map);
-var boundLayer = L.layerGroup().addTo(map);
-var routeLayer = L.layerGroup().addTo(map);
+/* Streets get their own pane between the basemap (200) and the overlays (400),
+   so the greyscale filter on the basemap cannot desaturate the score colours. */
+map.createPane('walkPane');
+map.getPane('walkPane').style.zIndex = 350;
+map.getPane('walkPane').style.pointerEvents = 'none';
 
-var hexRefs = [];
-if(H3){
-  SEG.forEach(function(s,i){
-    var b;
-    try{ b = H3.cellToBoundary(s[IX.h3]); }catch(e){ return; }
-    var poly = L.polygon(b,{
-      color:'#0A0F18', weight:.5, opacity:.55,
-      fillColor:colourFor(s[IX.score]), fillOpacity:.72,
-      bubblingMouseEvents:false
+var svgR = L.svg({padding:0.35});
+
+/* streets are drawn tile by tile, so Leaflet handles pan, zoom and caching */
+var LOD_LOW = ['primary','secondary'];
+var LOD_MID = ['primary','secondary','tertiary','pedestrian','living_street'];
+function classesFor(z){ return z >= 14 ? null : (z >= 12 ? LOD_MID : LOD_LOW); }
+
+var StreetTiles = L.GridLayer.extend({
+  createTile: function (coords) {
+    var size = this.getTileSize();
+    var tile = L.DomUtil.create('canvas', 'leaflet-tile');
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    tile.width = size.x*dpr; tile.height = size.y*dpr;
+    tile.style.width = size.x + 'px'; tile.style.height = size.y + 'px';
+    var ctx = tile.getContext('2d');
+    ctx.scale(dpr, dpr);
+    this._render(ctx, coords, size);
+    return tile;
+  },
+  _render: function (ctx, coords, size) {
+    var z = coords.z, allow = classesFor(z);
+    var allowSet = allow ? new Set(allow) : null;
+    var b = this._tileCoordsToBounds(coords), pad = 0.002;
+    var s = b.getSouth()-pad, n = b.getNorth()+pad, w = b.getWest()-pad, e = b.getEast()+pad;
+    var ox = coords.x*size.x, oy = coords.y*size.y;
+
+    var ids = new Set();
+    for (var ci = Math.floor(s/CELL); ci <= Math.floor(n/CELL); ci++)
+      for (var cj = Math.floor(w/CELL); cj <= Math.floor(e/CELL); cj++) {
+        var arr = GRID.get(ci + ':' + cj);
+        if (arr) for (var t = 0; t < arr.length; t++) ids.add(arr[t]);
+      }
+    if (!ids.size) return;
+
+    var width = z >= 17 ? 4.4 : z >= 16 ? 3.4 : z >= 15 ? 2.5 : z >= 14 ? 2.1 : 1.8;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    var byColour = new Map();
+    ids.forEach(function (i) {
+      if (allowSet && !allowSet.has(HW[S[i][F.HW]])) return;
+      var c = colourOf(i), grp = byColour.get(c);
+      if (!grp) byColour.set(c, [i]); else grp.push(i);
     });
-    poly.bindTooltip(
-      '<b>'+esc(s[IX.name])+'</b><br>'+esc(s[IX.highway])+' · sidewalk '+esc(s[IX.sidewalk])+
-      '<br>score '+s[IX.score].toFixed(2)+' · POI '+s[IX.poi]+' · transit '+Math.round(s[IX.dist])+' m',
-      {className:'tip', sticky:true});
-    poly.on('click', function(ev){ L.DomEvent.stop(ev); pick(i); });
-    poly.addTo(hexLayer);
-    hexRefs.push(poly);
+
+    byColour.forEach(function (list, colour) {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      for (var k = 0; k < list.length; k++) {
+        var p = GEOM[list[k]];
+        for (var j = 0; j < p.length; j++) {
+          var pt = map.project(L.latLng(p[j][0], p[j][1]), z);
+          if (j === 0) ctx.moveTo(pt.x-ox, pt.y-oy); else ctx.lineTo(pt.x-ox, pt.y-oy);
+        }
+      }
+      ctx.stroke();
+    });
+  }
+});
+var streetLayer = new StreetTiles({tileSize:256, updateWhenZooming:false, keepBuffer:2,
+                                   className:'walk-streets', pane:'walkPane'});
+streetLayer.addTo(map);
+
+var boundLayer  = L.layerGroup().addTo(map);
+var legalLayer  = L.layerGroup();
+var hexLayer    = L.layerGroup();
+var surveyLayer = L.layerGroup();
+var routeLayer  = L.layerGroup().addTo(map);
+var selLayer    = L.layerGroup().addTo(map);
+var hoverLayer  = L.layerGroup().addTo(map);
+var abLayer     = L.layerGroup().addTo(map);
+
+(function drawBoundaries() {
+  M.boundary.forEach(function (ring) {
+    L.polygon(ring.map(function (p) { return [p[1], p[0]]; }),
+      {renderer:svgR, color:'#14120E', weight:2, opacity:.85, fill:false, interactive:false})
+      .addTo(boundLayer);
   });
+  M.boundaryLegal.forEach(function (ring) {
+    L.polygon(ring.map(function (p) { return [p[1], p[0]]; }),
+      {renderer:svgR, color:'#8B8471', weight:1.4, dashArray:'7,6', opacity:.85,
+       fill:false, interactive:false})
+      .addTo(legalLayer);
+  });
+})();
 
-  var H = hull(pts);
-  if(H.length>2){
-    L.polygon(H.map(function(p){return [p.lat,p.lng];}),{
-      color:'#7FA8C9', weight:2, opacity:.9, dashArray:'7 5',
-      fill:true, fillColor:'#4FD8EE', fillOpacity:.03, interactive:false
-    }).addTo(boundLayer);
+function hexPopup(h, v) {
+  return '<div class="pop"><h4>H3 res-9 cell</h4><div class="sub">' + esc(h[0]) +
+         '</div><table><tr><td>mean walkability</td><td><b>' + v.toFixed(2) +
+         '</b></td></tr><tr><td>segments in cell</td><td>' + h[3] + '</td></tr></table></div>';
+}
+function drawHexes() {
+  hexLayer.clearLayers();
+  M.hexes.forEach(function (h) {
+    var v = h[scoreField === 'gbm' ? 2 : 1], bnd;
+    try { bnd = H3.cellToBoundary(h[0]); } catch (e) { return; }
+    L.polygon(bnd, {renderer:svgR, color:'#14120E', weight:.5, opacity:.35,
+      fillColor:colourForScore(v), fillOpacity:.42}).bindPopup(hexPopup(h, v)).addTo(hexLayer);
+  });
+}
+drawHexes();
+
+(function drawSurvey() {
+  /* The original 1,000 CSV rows. Their h3_res9 strings are not valid H3 cells,
+     so they have no real position — they are laid out on a reference grid and
+     labelled as unplaced rather than pretending to be somewhere. */
+  var segs = W.segments, cols = 40, lat0 = 14.5665, lon0 = 120.9635, step = 0.0016;
+  segs.forEach(function (r, k) {
+    L.circleMarker([lat0 + Math.floor(k/cols)*step, lon0 + (k % cols)*step], {
+      renderer:svgR, radius:3.4, weight:1, color:'#14120E', opacity:.45,
+      fillColor:colourForScore(r[8]), fillOpacity:.9
+    }).bindPopup(
+      '<div class="pop"><h4>' + esc(r[1]) + '</h4>' +
+      '<div class="sub">synthetic survey row ' + k + ' — not a real location</div><table>' +
+      '<tr><td>score in CSV</td><td><b>' + r[8] + '</b></td></tr>' +
+      '<tr><td>highway</td><td>' + esc(r[3]) + '</td></tr>' +
+      '<tr><td>sidewalk</td><td>' + esc(r[4]) + '</td></tr>' +
+      '<tr><td>h3_res9</td><td>' + esc(r[2]) + '</td></tr></table>' +
+      '<div class="sub" style="margin:8px 0 0">That H3 string fails validation, so this row ' +
+      'cannot be placed on the map.</div></div>'
+    ).addTo(surveyLayer);
+  });
+})();
+
+/* -------------------------------------------------------------- interaction */
+var selected = null, A = null, B = null, arm = null, clickTimer = null;
+
+function highlight(ids, group, opts) {
+  group.clearLayers();
+  ids.forEach(function (i) {
+    L.polyline(GEOM[i], Object.assign({renderer:svgR, interactive:false}, opts)).addTo(group);
+  });
+}
+
+map.on('mousemove', (function () {
+  var last = 0;
+  return function (ev) {
+    var now = (window.performance || Date).now();
+    if (now - last < 45) return;
+    last = now;
+    var tol = Math.max(14, 300/Math.pow(2, map.getZoom()-11));
+    var hit = nearestStreet(ev.latlng.lat, ev.latlng.lng, tol);
+    if (!hit) { hoverLayer.clearLayers(); map.getContainer().style.cursor = ''; return; }
+    map.getContainer().style.cursor = 'pointer';
+    highlight([hit.i], hoverLayer, {color:'#14120E', weight:7, opacity:.16});
+  };
+})());
+map.on('mouseout', function () { hoverLayer.clearLayers(); });
+
+map.on('click', function (ev) {
+  if (clickTimer) return;
+  clickTimer = setTimeout(function () { clickTimer = null; doSelect(ev.latlng, false); }, 240);
+});
+map.on('dblclick', function (ev) {
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+  doSelect(ev.latlng, true);
+});
+
+function doSelect(latlng, whole) {
+  var hit = nearestStreet(latlng.lat, latlng.lng, 300);
+  if (!hit) return;
+  var i = hit.i, nameId = S[i][F.NAME], nm = M.names[nameId], ids = [i];
+  if (whole && nm) {
+    ids = [];
+    for (var k = 0; k < N; k++) if (S[k][F.NAME] === nameId) ids.push(k);
   }
-  var bnds = L.latLngBounds(pts.map(function(p){return [p.lat,p.lng];}));
-  map.fitBounds(bnds,{padding:[28,28]});
-}else{
-  map.setView([14.5995,120.9842],13);
+  selected = {ids:ids, seed:i, name: nm || '(unnamed road)', whole: whole && !!nm, ll:hit.ll};
+  highlight(ids, selLayer, {color:'#14120E', weight: whole ? 5 : 6, opacity:.9});
+  renderStreet();
+  loadIntoForm(i);
+
+  var routeActive = $('tab-route').getAttribute('aria-selected') === 'true';
+  if (arm === 'A') setEnd('A', i, hit.ll);
+  else if (arm === 'B') setEnd('B', i, hit.ll);
+  else if (routeActive && !A) setEnd('A', i, hit.ll);
+  else if (routeActive) setEnd('B', i, hit.ll);
+  arm = null; syncArm();
 }
 
-function esc(t){ return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   4 · route selection
-   ═══════════════════════════════════════════════════════════════════════ */
-var A=null, B=null;
-
-function nearest(lat,lng){
-  var best=-1, bd=Infinity;
-  for(var i=0;i<pts.length;i++){
-    var d=(pts[i].lat-lat)*(pts[i].lat-lat)+(pts[i].lng-lng)*(pts[i].lng-lng);
-    if(d<bd){ bd=d; best=pts[i].i; }
-  }
-  return best;
+function endpointNodeFor(i, ll) {
+  var a = S[i][F.A], b = S[i][F.B];
+  return metresBetween(ll[0], ll[1], nodeLat(a), nodeLon(a)) <=
+         metresBetween(ll[0], ll[1], nodeLat(b), nodeLon(b)) ? a : b;
+}
+function setEnd(which, i, ll) {
+  var rec = {i:i, ll:ll, node:endpointNodeFor(i, ll)};
+  if (which === 'A') A = rec; else B = rec;
+  syncEnds(); drawAB(); computeRoutes();
+}
+function drawAB() {
+  abLayer.clearLayers();
+  [[A,'a','A'],[B,'b','B']].forEach(function (t) {
+    if (!t[0]) return;
+    L.marker(t[0].ll, {interactive:false, icon: L.divIcon({className:'',
+      html:'<div class="marker-ab ' + t[1] + '">' + t[2] + '</div>',
+      iconSize:[26,26], iconAnchor:[13,13]})}).addTo(abLayer);
+  });
+}
+function syncEnds() {
+  [[A,'a'],[B,'b']].forEach(function (t) {
+    var r = t[0], p = t[1];
+    $(p + '-name').textContent = r ? (M.names[S[r.i][F.NAME]] || '(unnamed road)') : 'not set';
+    $(p + '-h3').textContent = r ? H3.latLngToCell(r.ll[0], r.ll[1], 9) : '—';
+    $('end-' + p).classList.toggle('set', !!r);
+  });
+}
+function syncArm() {
+  $('end-a').classList.toggle('armed', arm === 'A');
+  $('end-b').classList.toggle('armed', arm === 'B');
+  $('btn-setA').setAttribute('aria-pressed', arm === 'A');
+  $('btn-setB').setAttribute('aria-pressed', arm === 'B');
 }
 
-map.on('click', function(e){ if(pts.length) pick(nearest(e.latlng.lat,e.latlng.lng)); });
-document.addEventListener('keydown', function(e){ if(e.key==='Escape') clearRoute(); });
+/* --------------------------------------------------------------- route panel */
+var routes = [], activeRoute = 0;
 
-function pick(i){
-  if(A===null || (A!==null && B!==null)){ A=i; B=null; }
-  else if(i!==A){ B=i; }
-  syncEnds(); drawRoute();
-  if(B===null) loadIntoForm(SEG[i]);
-}
+function fmtM(m){ return m >= 1000 ? (m/1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 
-function clearRoute(){ A=null; B=null; syncEnds(); drawRoute(); }
-document.getElementById('btn-clear').addEventListener('click', clearRoute);
-
-function syncEnds(){
-  var a=A!==null?SEG[A]:null, b=B!==null?SEG[B]:null;
-  document.getElementById('a-name').textContent = a? a[IX.name] : 'not set';
-  document.getElementById('a-h3').textContent   = a? a[IX.h3]+' · '+a[IX.score].toFixed(2) : '—';
-  document.getElementById('b-name').textContent = b? b[IX.name] : 'not set';
-  document.getElementById('b-h3').textContent   = b? b[IX.h3]+' · '+b[IX.score].toFixed(2) : '—';
-  document.getElementById('tape-a').textContent = a? 'A · '+a[IX.name] : 'A';
-  document.getElementById('tape-b').textContent = b? 'B · '+b[IX.name] : 'B';
-}
-
-/* inverse-distance estimate for path cells with no surveyed segment */
-function idw(lat,lng,k){
-  var arr=[], i;
-  for(i=0;i<pts.length;i++){
-    var d=haversine(lat,lng,pts[i].lat,pts[i].lng);
-    arr.push({d:d,i:pts[i].i});
-  }
-  arr.sort(function(x,y){return x.d-y.d;});
-  var num=0,den=0;
-  for(i=0;i<Math.min(k,arr.length);i++){
-    var w=1/Math.pow(Math.max(arr[i].d,1),2);
-    num+=w*SEG[arr[i].i][IX.score]; den+=w;
-  }
-  return den? num/den : 0;
-}
-
-function drawRoute(){
+function computeRoutes() {
   routeLayer.clearLayers();
-  var blank=['r-score','r-dist','r-crow','r-cells'];
+  routes = [];
+  $('routes').innerHTML = '';
+  $('routes-wrap').hidden = true;
+  $('profile-wrap').hidden = true;
+  $('routekey').hidden = true;
+  var status = $('route-status');
 
-  if(A!==null){
-    var a=SEG[A];
-    L.circleMarker(a.__ll,{radius:7,color:'#F5E06B',weight:2.5,fillColor:'#0A0F18',fillOpacity:1}).addTo(routeLayer);
-  }
-  if(B!==null){
-    var b=SEG[B];
-    L.circleMarker(b.__ll,{radius:7,color:'#4FD8EE',weight:2.5,fillColor:'#0A0F18',fillOpacity:1}).addTo(routeLayer);
-  }
-
-  if(A===null || B===null || !H3){
-    blank.forEach(function(id){ document.getElementById(id).textContent='—'; });
-    renderTape([]);
+  if (!A || !B) {
+    status.hidden = false;
+    status.className = 'note plain';
+    status.innerHTML = A ? 'Now click the map to set <b>B</b>.' : 'Click the map to set <b>A</b>.';
     return;
   }
-
-  var ca=SEG[A][IX.h3], cb=SEG[B][IX.h3], path;
-  try{ path = H3.gridPathCells(ca,cb); }
-  catch(err){ path=[ca,cb]; }
-  if(!path || !path.length) path=[ca,cb];
-
-  var prof=[], coords=[], dist=0, prev=null;
-  path.forEach(function(c){
-    var ll; try{ ll=H3.cellToLatLng(c); }catch(e){ return; }
-    coords.push(ll);
-    if(prev) dist += haversine(prev[0],prev[1],ll[0],ll[1]);
-    prev = ll;
-    var row = byCell[c];
-    prof.push(row
-      ? {c:c, v:row[IX.score], est:false, nm:row[IX.name]}
-      : {c:c, v:idw(ll[0],ll[1],5), est:true, nm:'unsurveyed cell'});
-  });
-
-  L.polyline(coords,{color:'#4FD8EE',weight:3.5,opacity:.95}).addTo(routeLayer);
-  L.polyline(coords,{color:'#4FD8EE',weight:11,opacity:.13}).addTo(routeLayer);
-
-  var mean = prof.reduce(function(s,p){return s+p.v;},0)/prof.length;
-  var surveyed = prof.filter(function(p){return !p.est;}).length;
-  var crow = haversine(SEG[A].__ll[0],SEG[A].__ll[1],SEG[B].__ll[0],SEG[B].__ll[1]);
-
-  document.getElementById('r-score').innerHTML = mean.toFixed(1)+' <small>/ 100</small>';
-  document.getElementById('r-dist').innerHTML  = fmtM(dist);
-  document.getElementById('r-crow').innerHTML  = fmtM(crow);
-  document.getElementById('r-cells').innerHTML = prof.length+' <small>('+surveyed+' surveyed)</small>';
-
-  renderTape(prof);
-}
-
-function fmtM(m){
-  return m>=1000 ? (m/1000).toFixed(2)+' <small>km</small>' : Math.round(m)+' <small>m</small>';
-}
-
-/* ─── signature: walk profile tape ─── */
-function renderTape(prof){
-  var svg=document.getElementById('tape'), NS='http://www.w3.org/2000/svg';
-  while(svg.firstChild) svg.removeChild(svg.firstChild);
-  if(!prof.length){ svg.setAttribute('width','100%'); return; }
-
-  var w=17, h=19, gap=2.5, pad=8;
-  var W = pad*2 + prof.length*(w+gap);
-  svg.setAttribute('width', Math.max(W,240));
-  svg.setAttribute('viewBox','0 0 '+Math.max(W,240)+' 66');
-
-  var maxV = Math.max(SMAX, 1);
-
-  prof.forEach(function(p,i){
-    var x = pad + i*(w+gap);
-    var barH = 30 * (p.v/maxV);
-    // score column
-    var r=document.createElementNS(NS,'rect');
-    r.setAttribute('x',x+2); r.setAttribute('y',34-barH);
-    r.setAttribute('width',w-4); r.setAttribute('height',Math.max(barH,1));
-    r.setAttribute('fill',colourFor(p.v)); r.setAttribute('rx',1.5);
-    if(p.est) r.setAttribute('class','est');
-    svg.appendChild(r);
-    // hexagon marker
-    var cx=x+w/2, cy=48, rr=6.6, d='';
-    for(var k=0;k<6;k++){
-      var ang=Math.PI/180*(60*k-30);
-      d += (k?'L':'M')+(cx+rr*Math.cos(ang)).toFixed(2)+','+(cy+rr*Math.sin(ang)).toFixed(2);
-    }
-    var hx=document.createElementNS(NS,'path');
-    hx.setAttribute('d',d+'Z');
-    hx.setAttribute('fill',colourFor(p.v));
-    hx.setAttribute('stroke', p.est ? '#5C6E8A' : '#0A0F18');
-    hx.setAttribute('stroke-width', p.est ? '1' : '.6');
-    hx.setAttribute('stroke-dasharray', p.est ? '2 1.6' : '');
-    if(p.est) hx.setAttribute('class','est');
-    var t=document.createElementNS(NS,'title');
-    t.textContent = p.nm+' — '+p.v.toFixed(2)+(p.est?' (estimated)':'')+'\n'+p.c;
-    hx.appendChild(t);
-    svg.appendChild(hx);
-  });
-
-  // baseline
-  var ln=document.createElementNS(NS,'line');
-  ln.setAttribute('x1',0); ln.setAttribute('x2',Math.max(W,240));
-  ln.setAttribute('y1',35); ln.setAttribute('y2',35);
-  ln.setAttribute('stroke','#253449'); ln.setAttribute('stroke-width','1');
-  svg.insertBefore(ln, svg.firstChild);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   5 · map toggles
-   ═══════════════════════════════════════════════════════════════════════ */
-function toggleBtn(id, on, off){
-  var el=document.getElementById(id);
-  el.addEventListener('click',function(){
-    var next = el.getAttribute('aria-pressed')!=='true';
-    el.setAttribute('aria-pressed', next?'true':'false');
-    next?on():off();
-  });
-}
-toggleBtn('mb-hex', function(){map.addLayer(hexLayer);},  function(){map.removeLayer(hexLayer);});
-toggleBtn('mb-bound',function(){map.addLayer(boundLayer);},function(){map.removeLayer(boundLayer);});
-document.getElementById('mb-fit').addEventListener('click',function(){
-  if(pts.length) map.fitBounds(L.latLngBounds(pts.map(function(p){return [p.lat,p.lng];})),{padding:[28,28]});
-});
-
-/* legend */
-(function(){
-  var lg=document.getElementById('legend');
-  for(var i=0;i<=40;i++){
-    var s=document.createElement('i');
-    s.style.background=colourFor(SMIN+(SMAX-SMIN)*(i/40));
-    lg.appendChild(s);
+  if (A.node === B.node) {
+    status.hidden = false; status.className = 'note bad';
+    status.innerHTML = 'A and B snapped to the same junction — pick points further apart.';
+    return;
   }
-  document.getElementById('lg-lo').textContent=SMIN.toFixed(1);
-  document.getElementById('lg-hi').textContent=SMAX.toFixed(1);
-})();
+  status.hidden = false; status.className = 'note plain';
+  status.innerHTML = '<span class="spin"></span> routing…';
 
-/* ═══════════════════════════════════════════════════════════════════════
-   6 · tabs
-   ═══════════════════════════════════════════════════════════════════════ */
-['route','model','about'].forEach(function(k){
-  document.getElementById('tab-'+k).addEventListener('click',function(){
-    ['route','model','about'].forEach(function(j){
-      var t=document.getElementById('tab-'+j), p=document.getElementById('pane-'+j);
-      t.setAttribute('aria-selected', j===k?'true':'false');
-      p.classList.toggle('on', j===k);
+  setTimeout(function () {
+    var found = [];
+    ROUTE_STYLES.forEach(function (st) {
+      var edges = astar(A.node, B.node, st.alpha);
+      if (edges && edges.length) found.push(Object.assign({}, st, summarise(edges)));
     });
-    if(k==='route') setTimeout(function(){map.invalidateSize();},50);
+    if (!found.length) {
+      status.className = 'note bad';
+      status.innerHTML = '<b>No walking route found.</b> A and B sit on parts of the network that ' +
+        'OpenStreetMap does not connect — try points nearer a main road.';
+      return;
+    }
+    found.forEach(function (r, i) {
+      r.dup = false;
+      for (var j = 0; j < i; j++) {
+        var same = 0;
+        r.set.forEach(function (e) { if (found[j].set.has(e)) same++; });
+        if (same/Math.max(r.set.size, found[j].set.size) > 0.97) { r.dup = true; r.dupOf = found[j].name; }
+      }
+    });
+    routes = found;
+    status.hidden = true;
+    $('routes-wrap').hidden = false;
+    renderRoutes();
+    selectRoute(0);
+    var all = [];
+    routes[0].edges.forEach(function (e) { all = all.concat(GEOM[e]); });
+    if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.2));
+  }, 20);
+}
+
+function renderRoutes() {
+  var host = $('routes');
+  host.innerHTML = '';
+  var shortest = routes.reduce(function (m, r) { return Math.min(m, r.len); }, Infinity);
+  var worst = routes.reduce(function (m, r) { return Math.min(m, r.mean); }, Infinity);
+  routes.forEach(function (r, idx) {
+    var el = document.createElement('div');
+    el.className = 'route' + (r.dup ? ' dup' : '');
+    el.style.borderLeftColor = r.colour;
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-pressed', idx === activeRoute);
+    var extra = r.len - shortest, gain = r.mean - worst;
+    var why = r.dup
+      ? 'Identical to <b>' + esc(r.dupOf) + '</b> — no better option exists here.'
+      : (extra < 1
+          ? 'The shortest way there.'
+          : '+' + fmtM(extra) + ' (' + Math.round(100*extra/shortest) + '% longer)' +
+            (gain > 0.05 ? ' for +' + gain.toFixed(1) + ' walkability.' : '.'));
+    el.innerHTML =
+      '<div class="rt"><div class="nm"><i class="swatch" style="border-top-color:' + r.colour +
+        ';' + (r.dash ? 'border-top-style:dashed' : '') + '"></i>' + esc(r.name) + '</div>' +
+      '<div class="sc" style="color:' + r.colour + '">' + r.mean.toFixed(1) + '</div></div>' +
+      '<div class="meta">' + fmtM(r.len) + ' &middot; ' + Math.round(r.mins) + ' min &middot; ' +
+        r.edges.length + ' segments</div>' +
+      '<div class="why">' + why + '</div>';
+    el.addEventListener('click', function () { selectRoute(idx); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRoute(idx); }
+    });
+    host.appendChild(el);
   });
-});
+  $('routekey').hidden = false;
+  $('routekey').innerHTML = routes.map(function (r) {
+    return '<div><i class="sw" style="border-top-color:' + r.colour + ';' +
+           (r.dash ? 'border-top-style:dashed' : '') + '"></i>' + esc(r.name) + '</div>';
+  }).join('');
+}
 
-/* ═══════════════════════════════════════════════════════════════════════
-   7 · preprocessing  (one-hot + robust scaling → 2513-vector)
-   ═══════════════════════════════════════════════════════════════════════ */
-var CAT = D.categories, ENC = D.encoders, K = D.constants, SCL = D.scaler, RHO = D.rho;
-var NUMC = D.featureOrder.numeric, BLK = D.featureOrder.blocks, NTOT = D.featureOrder.total;
+function drawRoute(r, active) {
+  var lines = r.edges.map(function (e) { return GEOM[e]; });
+  L.polyline(lines, {renderer:svgR, color:'#FFFAED', weight: active ? 9 : 6,
+    opacity: active ? .95 : .5, interactive:false}).addTo(routeLayer);
+  L.polyline(lines, {renderer:svgR, color:r.colour, dashArray:r.dash,
+    weight: active ? 5 : 3, opacity: active ? 1 : .55, lineCap:'round',
+    interactive:false}).addTo(routeLayer);
+}
+function selectRoute(idx) {
+  activeRoute = idx;
+  routeLayer.clearLayers();
+  routes.forEach(function (r, i) { if (i !== idx) drawRoute(r, false); });
+  drawRoute(routes[idx], true);
+  Array.prototype.forEach.call($('routes').children, function (el, i) {
+    el.setAttribute('aria-pressed', i === idx);
+  });
+  renderProfile(routes[idx]);
+}
 
-/* index maps for O(1) one-hot lookup */
-var CATIX = {};
-Object.keys(CAT).forEach(function(col){
-  var m=Object.create(null);
-  CAT[col].forEach(function(v,i){ m[v]=i; });
-  CATIX[col]=m;
-});
+function renderProfile(r) {
+  $('profile-wrap').hidden = false;
+  var svg = $('tape'), host = svg.parentNode;
+  var W_ = Math.max((host.clientWidth || 340) - 2, r.edges.length*3);
+  var H_ = 80, top = 12, h = 48;
+  svg.setAttribute('width', W_);
+  svg.setAttribute('height', H_);
+  svg.setAttribute('viewBox', '0 0 ' + W_ + ' ' + H_);
+  var st = statsFor(), span = Math.max(1e-9, st.max - st.min);
+  var parts = [], x = 0;
+  r.edges.forEach(function (e) {
+    var w = Math.max(1.2, (S[e][F.LEN]/r.len)*W_);
+    var bh = Math.max(3, clamp((SCORE[e]-st.min)/span, 0, 1)*h);
+    parts.push('<rect x="' + x.toFixed(2) + '" y="' + (top+h-bh).toFixed(2) +
+      '" width="' + Math.max(0.8, w-0.4).toFixed(2) + '" height="' + bh.toFixed(2) +
+      '" fill="' + colourOf(e) + '" rx="1"><title>' +
+      esc(M.names[S[e][F.NAME]] || '(unnamed road)') + ' — ' + SCORE[e].toFixed(1) +
+      ' over ' + Math.round(S[e][F.LEN]) + ' m</title></rect>');
+    x += w;
+  });
+  parts.push('<line x1="0" y1="' + (top+h) + '" x2="' + W_ + '" y2="' + (top+h) +
+             '" stroke="#D2C6B2" stroke-width="1"/>');
+  var my = top + h - clamp((r.mean-st.min)/span, 0, 1)*h;
+  parts.push('<line x1="0" y1="' + my.toFixed(1) + '" x2="' + W_ + '" y2="' + my.toFixed(1) +
+             '" stroke="' + r.colour + '" stroke-width="1.5" stroke-dasharray="4,4"/>');
+  parts.push('<text x="4" y="' + Math.max(9, my-4).toFixed(1) +
+             '" font-size="9" font-family="ui-monospace,monospace" fill="' + r.colour +
+             '">mean ' + r.mean.toFixed(1) + '</text>');
+  svg.innerHTML = parts.join('');
+  $('tape-mid').textContent = fmtM(r.len) + ' total';
 
-function mm(v,lo,hi){ return hi===lo?0:(v-lo)/(hi-lo); }
+  var rows = [], cur = null;
+  r.edges.forEach(function (e) {
+    var nm = M.names[S[e][F.NAME]] || '(unnamed road)';
+    if (cur && cur.nm === nm) { cur.len += S[e][F.LEN]; cur.w += SCORE[e]*S[e][F.LEN]; }
+    else { cur = {nm:nm, len:S[e][F.LEN], w:SCORE[e]*S[e][F.LEN]}; rows.push(cur); }
+  });
+  $('route-table').querySelector('tbody').innerHTML = rows.map(function (o) {
+    var v = o.w/o.len;
+    return '<tr><td class="wide">' + esc(o.nm) + '</td><td>' + fmtM(o.len) +
+           ' &middot; <b style="color:' + colourForScore(v) + '">' + v.toFixed(1) + '</b></td></tr>';
+  }).join('');
+}
 
-function derive(poi,dist,idn,highway,sidewalk){
-  var d = (dist > 0.01) ? dist : 0.01;          // T_norm inverts distance
-  return {
-    P_norm: mm(poi, K.poi[0], K.poi[1]),
-    T_norm: mm(1/d, K.inv[0], K.inv[1]),
-    I_norm: mm(idn, K.idn[0], K.idn[1]),
-    rho_phantom: (RHO[highway] && RHO[highway][sidewalk] != null) ? RHO[highway][sidewalk] : 0.4
+/* -------------------------------------------------------------- street panel */
+function renderStreet() {
+  if (!selected) return;
+  $('street-empty').hidden = true;
+  var body = $('street-body');
+  body.hidden = false;
+
+  var ids = selected.ids, len = 0, w = 0;
+  ids.forEach(function (i) { len += S[i][F.LEN]; w += SCORE[i]*S[i][F.LEN]; });
+  var mean = len ? w/len : 0, seed = selected.seed;
+  var srcCode = S[seed][F.SWSRC], inferred = srcCode === 2;
+  var cell = H3.latLngToCell(selected.ll[0], selected.ll[1], 9);
+  function row(k, v){ return '<tr><td>' + k + '</td><td>' + v + '</td></tr>'; }
+
+  body.innerHTML =
+    '<div class="card"><div class="grid2">' +
+      '<div class="metric"><div class="lbl">' + (selected.whole ? 'Street average' : 'Segment score') +
+        '</div><div class="num" style="color:' + colourForScore(mean) + '">' + mean.toFixed(2) +
+        '</div><div class="sub">' + (colourByRank
+          ? 'rank ' + Math.round(RANK[seed]*100) + ' of 100 in Manila'
+          : 'on the 0–100 rubric') + '</div></div>' +
+      '<div class="metric"><div class="lbl">Length</div><div class="num">' + fmtM(len) +
+        '</div><div class="sub">' + ids.length + ' segment' + (ids.length === 1 ? '' : 's') +
+        '</div></div>' +
+    '</div></div>' +
+    '<h3 style="margin-top:16px">' + esc(selected.name) + '</h3>' +
+    '<p>' + (selected.whole ? 'Whole named street, length-weighted.' : 'One block between junctions.') + '</p>' +
+    '<table class="dec"><tbody>' +
+      row('highway', HW[S[seed][F.HW]]) +
+      row('sidewalk', SW[S[seed][F.SW]] +
+          (inferred ? ' <span class="badge inferred">! inferred</span>' : '')) +
+      row('sidewalk source', M.swSrcCodes[srcCode]) +
+      row('poi_count_400m', S[seed][F.POI]) +
+      row('dist_to_transit_m', S[seed][F.DIST].toFixed(1)) +
+      row('intersection_density', S[seed][F.IDN].toFixed(1) + ' /km&sup2;') +
+      row('rho_phantom', M.rho[HW[S[seed][F.HW]]][SW[S[seed][F.SW]]]) +
+      row('h3 res-9 cell', '<code>' + cell + '</code>') +
+      row('analytic score', S[seed][F.SCORE].toFixed(2)) +
+      row('ported GBM score', S[seed][F.GBM].toFixed(2)) +
+    '</tbody></table>' +
+    (inferred
+      ? '<div class="note"><b>&#9888; Sidewalk inferred.</b> OpenStreetMap carries no sidewalk tag ' +
+        'on this road, so its class was used to guess. That guess moves <code>rho_phantom</code>, ' +
+        'which multiplies the whole score — treat this one as indicative.</div>'
+      : '') +
+    '<div class="btnrow" style="margin-top:14px">' +
+      '<button class="btn pri" id="use-a">Use as A</button>' +
+      '<button class="btn" id="use-b">Use as B</button>' +
+      '<button class="btn" id="zoom-sel">Zoom to it</button></div>';
+
+  $('use-a').onclick = function () { setEnd('A', seed, selected.ll); goTab('route'); };
+  $('use-b').onclick = function () { setEnd('B', seed, selected.ll); goTab('route'); };
+  $('zoom-sel').onclick = function () {
+    var all = [];
+    ids.forEach(function (i) { all = all.concat(GEOM[i]); });
+    map.fitBounds(L.latLngBounds(all).pad(0.25));
   };
 }
 
-/**
- * Build the model input vector.
- * @param {Object} f  raw feature object
- * @param {Boolean} scaled  apply RobustScaler to the 12 numeric columns
- * @returns {Float64Array} length 2513, matching expected_feature_order
- */
-function buildVector(f, scaled){
-  var x = new Float64Array(NTOT);
-  var raw = {
-    osmid_encoded: f.osmid_encoded, name_encoded: f.name_encoded,
-    h3_res9_encoded: f.h3_res9_encoded, highway_encoded: f.highway_encoded,
-    sidewalk_encoded: f.sidewalk_encoded,
-    poi_count_400m: f.poi_count_400m, dist_to_transit_m: f.dist_to_transit_m,
-    intersection_density: f.intersection_density,
-    P_norm: f.P_norm, T_norm: f.T_norm, I_norm: f.I_norm, rho_phantom: f.rho_phantom
-  };
-  NUMC.forEach(function(c,i){
-    var v = raw[c];
-    if(scaled){ var p=SCL[c]; v = (v - p[0]) / p[1]; }
-    x[i] = v;
-  });
-  [['osmid',f.osmid],['name',f.name],['h3_res9',f.h3_res9],
-   ['highway',f.highway],['sidewalk',f.sidewalk]].forEach(function(pair){
-    var col=pair[0], val=String(pair[1]);
-    var j = CATIX[col][val];              // undefined ⇒ the dropped-first level ⇒ all-zero
-    if(j!==undefined) x[BLK[col][0]+j] = 1;
-  });
-  return x;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   8 · model binding
-   ═══════════════════════════════════════════════════════════════════════ */
-var MODEL = (typeof window.score === 'function') ? window.score : null;
-var MINFO = window.MODEL_INFO || {};
-(function(){
-  var chip=document.getElementById('model-chip'), txt=document.getElementById('model-txt');
-  if(!MODEL){ chip.className='chip'; txt.textContent='no score() found'; return; }
-  if(MINFO.kind==='reference'){ chip.className='chip ref'; txt.textContent='reference scorer'; }
-  else { chip.className='chip ok'; txt.textContent='model.js loaded'; }
+/* ------------------------------------------------------------------ predict */
+(function fillSelects() {
+  $('f-hw').innerHTML = HW.map(function (h) { return '<option>' + h + '</option>'; }).join('');
+  $('f-sw').innerHTML = SW.map(function (s) { return '<option>' + s + '</option>'; }).join('');
 })();
-/* the reference scorer reads unscaled P/T/I/rho */
-if(MINFO.kind==='reference') document.getElementById('use-scaled').checked=false;
 
-/* ═══════════════════════════════════════════════════════════════════════
-   9 · form
-   ═══════════════════════════════════════════════════════════════════════ */
-function opts(sel, values, labeller){
-  var frag=document.createDocumentFragment();
-  values.forEach(function(v){
-    var o=document.createElement('option');
-    o.value=v; o.textContent=labeller?labeller(v):v;
-    frag.appendChild(o);
-  });
-  sel.appendChild(frag);
-}
-function uniq(a){ var s=Object.create(null), o=[]; a.forEach(function(v){ if(!s[v]){s[v]=1;o.push(v);} }); return o; }
-
-var allNames = uniq(SEG.map(function(s){return s[IX.name];})).sort();
-var allOsmid = uniq(SEG.map(function(s){return s[IX.osmid];})).sort();
-var allH3    = uniq(SEG.map(function(s){return s[IX.h3];})).sort();
-var allHw    = uniq(SEG.map(function(s){return s[IX.highway];})).sort();
-var allSw    = uniq(SEG.map(function(s){return s[IX.sidewalk];})).sort();
-
-opts(document.getElementById('f-name'),    allNames);
-opts(document.getElementById('f-osmid'),   allOsmid);
-opts(document.getElementById('f-h3'),      allH3);
-opts(document.getElementById('f-highway'), allHw);
-opts(document.getElementById('f-sidewalk'),allSw);
-
-var $ = function(id){ return document.getElementById(id); };
-
-/* keep slider ↔ number pairs in step */
-[['f-poi','f-poi-r'],['f-dist','f-dist-r'],['f-idn','f-idn-r']].forEach(function(p){
-  var n=$(p[0]), r=$(p[1]);
-  n.addEventListener('input',function(){ r.value=n.value; refresh(); });
-  r.addEventListener('input',function(){ n.value=r.value; refresh(); });
-});
-['f-name','f-osmid','f-h3','f-highway','f-sidewalk'].forEach(function(id){
-  $(id).addEventListener('change', refresh);
-});
-$('auto-derive').addEventListener('change',function(){
-  var ro=this.checked;
-  ['f-P','f-T','f-I','f-rho'].forEach(function(id){ $(id).readOnly=ro; });
-  if(ro) refresh();
-});
-
-function currentRaw(){
-  var hw=$('f-highway').value, sw=$('f-sidewalk').value;
-  var poi=+$('f-poi').value, dist=+$('f-dist').value, idn=+$('f-idn').value;
-  var d = $('auto-derive').checked
-    ? derive(poi,dist,idn,hw,sw)
-    : {P_norm:+$('f-P').value, T_norm:+$('f-T').value, I_norm:+$('f-I').value, rho_phantom:+$('f-rho').value};
+function mm(v, lo, hi){ return hi === lo ? 0 : clamp((v-lo)/(hi-lo), 0, 1); }
+function derive(poi, dist, idn, hw, sw) {
+  var d = Math.max(25, dist);
   return {
-    osmid:$('f-osmid').value, name:$('f-name').value, h3_res9:$('f-h3').value,
-    highway:hw, sidewalk:sw,
-    osmid_encoded: ENC.osmid[$('f-osmid').value] || 0,
-    name_encoded:  ENC.name[$('f-name').value] || 0,
-    h3_res9_encoded: ENC.h3_res9[$('f-h3').value] || 0,
-    highway_encoded: ENC.highway[hw] || 0,
-    sidewalk_encoded: ENC.sidewalk[sw] || 0,
-    poi_count_400m:poi, dist_to_transit_m:dist, intersection_density:idn,
-    P_norm:d.P_norm, T_norm:d.T_norm, I_norm:d.I_norm, rho_phantom:d.rho_phantom
+    P: mm(poi, M.norms.poi[0], M.norms.poi[1]),
+    T: mm(1/d, M.norms.inv[0], M.norms.inv[1]),
+    I: mm(idn, M.norms.idn[0], M.norms.idn[1]),
+    rho: (M.rho[hw] && M.rho[hw][sw] != null) ? M.rho[hw][sw] : 0.4
   };
 }
-
-function refresh(){
-  var f=currentRaw();
-  if($('auto-derive').checked){
-    $('f-P').value=f.P_norm.toFixed(6);
-    $('f-T').value=f.T_norm.toFixed(6);
-    $('f-I').value=f.I_norm.toFixed(6);
-    $('f-rho').value=f.rho_phantom;
-  }
-  $('e-osmid').textContent   = 'enc '+f.osmid_encoded;
-  $('e-name').textContent    = 'enc '+f.name_encoded;
-  $('e-h3').textContent      = 'enc '+f.h3_res9_encoded;
-  $('e-highway').textContent = 'enc '+f.highway_encoded;
-  $('e-sidewalk').textContent= 'enc '+f.sidewalk_encoded;
-  drawDrivers(f);
+/* the full 2,513-length vector the ported GBM expects. Identifier columns get
+   the training median, so after the RobustScaler they contribute exactly zero. */
+function buildVector(hw, sw, poi, dist, idn, d) {
+  var v = new Float64Array(GBM.nFeatures);
+  v[0] = GBM.center[0]; v[1] = GBM.center[1]; v[2] = GBM.center[2];
+  v[3] = W.encoders.highway[hw] != null ? W.encoders.highway[hw] : GBM.center[3];
+  v[4] = W.encoders.sidewalk[sw] != null ? W.encoders.sidewalk[sw] : GBM.center[4];
+  v[5] = poi; v[6] = dist; v[7] = idn;
+  v[8] = d.P; v[9] = d.T; v[10] = d.I; v[11] = d.rho;
+  var hi = W.categories.highway.indexOf(hw);
+  if (hi >= 0) v[2503 + hi] = 1;
+  var si = W.categories.sidewalk.indexOf(sw);
+  if (si >= 0) v[2510 + si] = 1;
+  return v;
 }
-
-function loadIntoForm(s){
-  $('f-name').value=s[IX.name]; $('f-osmid').value=s[IX.osmid]; $('f-h3').value=s[IX.h3];
-  $('f-highway').value=s[IX.highway]; $('f-sidewalk').value=s[IX.sidewalk];
-  $('f-poi').value=s[IX.poi];   $('f-poi-r').value=s[IX.poi];
-  $('f-dist').value=s[IX.dist]; $('f-dist-r').value=Math.round(s[IX.dist]);
-  $('f-idn').value=s[IX.idn];   $('f-idn-r').value=s[IX.idn];
-  refresh();
-  predict(s[IX.score], true);   // quiet: no alert on auto-load
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   10 · prediction + drivers
-   ═══════════════════════════════════════════════════════════════════════ */
-function predict(actual, quiet){
-  if(!MODEL){
-    if(!quiet) alert('No score() function is loaded. Put your model.js next to index.html.');
-    return;
+function recompute() {
+  var hw = $('f-hw').value, sw = $('f-sw').value;
+  var poi = +$('f-poi').value || 0, dist = +$('f-dist').value || 25, idn = +$('f-idn').value || 0;
+  var d = derive(poi, dist, idn, hw, sw);
+  if ($('f-auto').checked) {
+    $('f-P').value = d.P.toFixed(4); $('f-T').value = d.T.toFixed(4);
+    $('f-I').value = d.I.toFixed(4); $('f-rho').value = d.rho;
+  } else {
+    d = {P:+$('f-P').value, T:+$('f-T').value, I:+$('f-I').value, rho:+$('f-rho').value};
   }
-  var f=currentRaw();
-  var vec=buildVector(f, $('use-scaled').checked);
-  var y;
-  try{ y=MODEL(vec); }
-  catch(err){
-    if(!quiet) alert('score() threw: '+err.message);
-    console.error('score() failed', err);
-    return;
-  }
+  var ruleScore = d.rho*(40*d.P + 30*d.T + 30*d.I);
+  var gbmScore = null;
+  try { gbmScore = GBM.score(buildVector(hw, sw, poi, dist, idn, d)); } catch (e) {}
 
-  $('pred-box').hidden=false;
-  $('pred-num').textContent = (typeof y==='number'? y.toFixed(2) : String(y));
-  $('pred-num').style.color = colourFor(+y);
-  $('pred-of').textContent = (actual!=null)
-      ? 'observed in dataset: '+actual.toFixed(2)+'  ·  Δ '+(Math.abs(y-actual)).toFixed(2)
-      : 'range in training data: '+SMIN.toFixed(2)+' – '+SMAX.toFixed(2);
-  var pc=Math.max(0,Math.min(100, (y-SMIN)/(SMAX-SMIN)*100));
-  $('pred-bar').style.width=pc+'%';
-  $('pred-bar').style.background=colourFor(+y);
-  drawDecomp(f, y);
+  var shown = (scoreField === 'gbm' && gbmScore !== null) ? gbmScore : ruleScore;
+  var st = statsFor();
+  $('pred-num').textContent = shown.toFixed(2);
+  $('pred-num').style.color = colourForScore(shown);
+  $('pred-of').textContent = (scoreField === 'gbm' ? 'ported GBM' : 'analytic rule') +
+    ' — Manila runs ' + st.min.toFixed(1) + ' to ' + st.max.toFixed(1);
+  $('pred-bar').style.width = clamp(shown, 0, 100) + '%';
+  $('pred-bar').style.background = colourForScore(shown);
+
+  $('compare').querySelector('tbody').innerHTML =
+    '<tr><td>Analytic rule</td><td><b>' + ruleScore.toFixed(2) + '</b></td></tr>' +
+    '<tr><td>Ported GBM</td><td><b>' + (gbmScore === null ? '—' : gbmScore.toFixed(2)) + '</b></td></tr>' +
+    '<tr><td>difference</td><td>' + (gbmScore === null ? '—' : (gbmScore-ruleScore).toFixed(2)) + '</td></tr>';
 }
-$('btn-predict').addEventListener('click',function(){ predict(null); });
+function loadIntoForm(i) {
+  $('f-hw').value = HW[S[i][F.HW]];
+  $('f-sw').value = SW[S[i][F.SW]];
+  $('f-poi').value  = S[i][F.POI];  $('f-poi-r').value  = clamp(S[i][F.POI], 0, 800);
+  $('f-dist').value = S[i][F.DIST]; $('f-dist-r').value = clamp(S[i][F.DIST], 25, 1750);
+  $('f-idn').value  = S[i][F.IDN];  $('f-idn-r').value  = clamp(S[i][F.IDN], 0, 1050);
+  $('f-auto').checked = true;
+  recompute();
+}
+['f-hw','f-sw','f-auto','f-P','f-T','f-I','f-rho'].forEach(function (id) {
+  $(id).addEventListener('input', recompute);
+});
+[['f-poi','f-poi-r'],['f-dist','f-dist-r'],['f-idn','f-idn-r']].forEach(function (p) {
+  $(p[0]).addEventListener('input', function () { $(p[1]).value = this.value; recompute(); });
+  $(p[1]).addEventListener('input', function () { $(p[0]).value = this.value; recompute(); });
+});
 
-var TOP5 = D.meta.top_5_influential_features;
-var RANGE = {
-  rho_phantom:[0.1,1.0], P_norm:[0,1], T_norm:[0,1], I_norm:[0,1],
-  highway_encoded:[0,allHw.length-1], sidewalk_encoded:[0,allSw.length-1],
-  poi_count_400m:K.poi, dist_to_transit_m:K.dist, intersection_density:K.idn,
-  osmid_encoded:[0,999], name_encoded:[0,493], h3_res9_encoded:[0,999]
+/* ------------------------------------------------------------------- chrome */
+function goTab(which) {
+  ['route','street','model','about'].forEach(function (t) {
+    var on = t === which;
+    $('tab-' + t).setAttribute('aria-selected', on);
+    $('pane-' + t).classList.toggle('on', on);
+  });
+  if (which === 'route' && routes.length) renderProfile(routes[activeRoute]);
+}
+['route','street','model','about'].forEach(function (t) {
+  $('tab-' + t).addEventListener('click', function () { goTab(t); });
+});
+
+$('btn-setA').onclick = function () { arm = arm === 'A' ? null : 'A'; syncArm(); };
+$('btn-setB').onclick = function () { arm = arm === 'B' ? null : 'B'; syncArm(); };
+$('btn-swap').onclick = function () { var t = A; A = B; B = t; syncEnds(); drawAB(); computeRoutes(); };
+$('btn-clear').onclick = function () {
+  A = B = null; arm = null; syncArm(); syncEnds(); drawAB(); computeRoutes();
 };
-function drawDrivers(f){
-  var box=$('drivers'); box.innerHTML='';
-  TOP5.forEach(function(name,i){
-    var v=f[name], r=RANGE[name]||[0,1];
-    var pc=Math.max(0,Math.min(100,(v-r[0])/((r[1]-r[0])||1)*100));
-    var d=document.createElement('div'); d.className='drv';
-    d.innerHTML='<div class="r1"><span class="nm"><span class="rank">'+(i+1)+'</span>'+esc(name)+
-                '</span><span class="val">'+(typeof v==='number'? (Math.abs(v)>=100? v.toFixed(0): v.toFixed(3)) : v)+
-                '</span></div><div class="track"><i style="width:'+pc.toFixed(1)+'%"></i></div>';
-    box.appendChild(d);
+
+function toggleLayer(btn, layer) {
+  $(btn).addEventListener('click', function () {
+    var on = this.getAttribute('aria-pressed') !== 'true';
+    this.setAttribute('aria-pressed', on);
+    if (on) map.addLayer(layer); else map.removeLayer(layer);
   });
 }
+toggleLayer('mb-streets', streetLayer);
+toggleLayer('mb-hex', hexLayer);
+toggleLayer('mb-bound', boundLayer);
+toggleLayer('mb-legal', legalLayer);
+toggleLayer('mb-survey', surveyLayer);
 
-function drawDecomp(f,y){
-  var tb=$('decomp').querySelector('tbody'); tb.innerHTML='';
-  var parts=[
-    ['POI access  ρ · 40 · P_norm',  f.rho_phantom*40*f.P_norm],
-    ['Transit     ρ · 30 · T_norm',  f.rho_phantom*30*f.T_norm],
-    ['Street grid ρ · 30 · I_norm',  f.rho_phantom*30*f.I_norm]
-  ];
-  var sum=parts.reduce(function(s,p){return s+p[1];},0);
-  parts.forEach(function(p){
-    var tr=document.createElement('tr');
-    tr.innerHTML='<td>'+esc(p[0])+'</td><td>'+p[1].toFixed(2)+'  ('+(sum? (p[1]/sum*100).toFixed(0):0)+'%)</td>';
-    tb.appendChild(tr);
-  });
-  var tr=document.createElement('tr');
-  tr.innerHTML='<td>analytic total</td><td>'+sum.toFixed(2)+'</td>';
-  tb.appendChild(tr);
-  $('decomp-note').innerHTML = 'Exact decomposition of the generating rule recovered from the training CSV '+
-    '(R² = 0.99999996). Your loaded model returned <code>'+(typeof y==='number'?y.toFixed(2):'—')+'</code>; '+
-    'gaps between the two are model error, not data noise.';
+$('mb-fit').onclick = function () { fitManila(); };
+$('mb-colour').onclick = function () {
+  colourByRank = !colourByRank;
+  this.setAttribute('aria-pressed', colourByRank);
+  this.textContent = 'Colour: ' + (colourByRank ? 'by rank' : 'absolute');
+  refreshColours();
+};
+$('f-model').addEventListener('change', function () {
+  useModel(this.value);
+  refreshColours();
+  renderModelChip();
+  if (selected) renderStreet();
+  recompute();
+  if (A && B) computeRoutes();
+});
+
+function refreshColours() {
+  streetLayer.redraw();
+  drawHexes();
+  renderLegend();
+  if (routes.length) selectRoute(activeRoute);
+}
+function fitManila() {
+  var all = [];
+  M.boundary.forEach(function (r) { r.forEach(function (p) { all.push([p[1], p[0]]); }); });
+  map.fitBounds(L.latLngBounds(all).pad(0.02));
+}
+function renderLegend() {
+  var st = statsFor();
+  $('legend').innerHTML = RAMP.map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('');
+  $('lg-title').textContent = 'Walkability — ' + (scoreField === 'gbm' ? 'ported GBM' : 'analytic rule');
+  if (colourByRank) {
+    $('lg-lo').textContent = 'least walkable';
+    $('lg-hi').textContent = 'most walkable';
+    $('lg-note').innerHTML = 'Coloured by <b>rank within Manila</b>, so each shade holds a similar ' +
+      'number of streets. Real scores run ' + st.min.toFixed(1) + '–' + st.max.toFixed(1) +
+      ' (median ' + st.median.toFixed(1) + ').';
+  } else {
+    $('lg-lo').textContent = st.min.toFixed(0);
+    $('lg-hi').textContent = st.max.toFixed(0);
+    $('lg-note').innerHTML = 'Absolute score on the 0–100 rubric. Manila bunches low — median ' +
+      st.median.toFixed(1) + ' — so most streets sit near the light end.';
+  }
+}
+function renderModelChip() {
+  var chip = $('model-chip');
+  chip.className = 'chip ok';
+  $('model-txt').textContent = scoreField === 'gbm'
+    ? 'GBM · 100 trees · ported' : 'analytic rule · exact';
+  $('model-note').innerHTML = scoreField === 'gbm'
+    ? '<div class="note"><b>Ported from winning_model.pkl.</b> Faithful to scikit-learn to ' +
+      '8&times;10<sup>&minus;11</sup> on all 1,000 training rows. But roughly 2,500 of its 2,513 ' +
+      'inputs are one-hot <i>row identifiers</i> (<code>osmid</code>, <code>name</code>, ' +
+      '<code>h3_res9</code>) which are all-zero for any street it never saw. On real Manila streets ' +
+      'only the eight genuine columns do any work, so read this as “what the GBM would say”, not ' +
+      'as a better measurement.</div>'
+    : '<div class="note good"><b>The rule the training data was actually built from.</b> Regressing ' +
+      'the target on its components recovers <code>rho &times; (40P + 30T + 30I)</code> at ' +
+      'R&sup2; = 0.99999996. It reproduces the CSV essentially exactly and, unlike the GBM, it uses ' +
+      'only measured features — so it generalises to streets nobody surveyed.</div>';
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   11 · about pane + boot
-   ═══════════════════════════════════════════════════════════════════════ */
-(function(){
-  var m=D.meta, tb=$('meta-tbl');
-  [['problem type',m.problem_type],['target',m.target_column],['model',m.winning_model_type],
-   ['params',m.best_params],['scaler',m.scaler_used+' (median / IQR)'],
-   ['test score',(+m.final_test_score).toFixed(4)]].forEach(function(r){
-    var tr=document.createElement('tr');
-    tr.innerHTML='<td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td>';
-    tb.appendChild(tr);
-  });
-  $('about-notes').innerHTML =
-    'Coordinates come from decoding each <code>h3_res9</code> index — the CSV carries no latitude or longitude. '+
-    'The dashed outline is the convex hull of the 1,000 surveyed cell centroids, so it traces the surveyed extent '+
-    'rather than the legal city limit; define <code>window.MANILA_BOUNDARY</code> as a GeoJSON polygon to draw the '+
-    'administrative border instead. RobustScaler medians and IQRs were recomputed from the CSV, since '+
-    '<code>app_intelligence.json</code> ships the scaler name but not its fitted parameters.';
+/* ----------------------------------------------------- in-browser self-test */
+(function selfTest() {
+  var chip = $('test-chip'), txt = $('test-txt');
+  if (!GBM || !GBM.reference) { txt.textContent = 'no self-test'; return; }
+  try {
+    var segs = W.segments, cats = W.categories, enc = W.encoders, C = W.constants;
+    var base = {osmid:12, name:1011, h3_res9:1504, highway:2503, sidewalk:2510};
+    var worst = 0;
+    GBM.reference.forEach(function (ref) {
+      var r = segs[ref.i], v = new Float64Array(GBM.nFeatures);
+      v[0] = enc.osmid[r[0]]; v[1] = enc.name[r[1]]; v[2] = enc.h3_res9[r[2]];
+      v[3] = enc.highway[r[3]]; v[4] = enc.sidewalk[r[4]];
+      v[5] = r[5]; v[6] = r[6]; v[7] = r[7];
+      v[8]  = mm(r[5], C.poi[0], C.poi[1]);
+      v[9]  = mm(1/r[6], C.inv[0], C.inv[1]);
+      v[10] = mm(r[7], C.idn[0], C.idn[1]);
+      v[11] = W.rho[r[3]][r[4]];
+      [['osmid',r[0]],['name',r[1]],['h3_res9',r[2]],['highway',r[3]],['sidewalk',r[4]]]
+        .forEach(function (p) {
+          var k = cats[p[0]].indexOf(String(p[1]));
+          if (k >= 0) v[base[p[0]] + k] = 1;
+        });
+      worst = Math.max(worst, Math.abs(GBM.score(v) - ref.y));
+    });
+    chip.className = worst < 1e-6 ? 'chip ok' : 'chip bad';
+    txt.textContent = (worst < 1e-6 ? 'self-test ok · Δ ' : 'self-test Δ ') + worst.toExponential(1);
+  } catch (e) {
+    chip.className = 'chip warn';
+    txt.textContent = 'self-test skipped';
+  }
 })();
 
-$('s-seg').textContent  = SEG.length.toLocaleString();
-$('s-cell').textContent = Object.keys(byCell).length.toLocaleString();
-$('s-r2').textContent   = (+D.meta.final_test_score).toFixed(4);
+/* -------------------------------------------------------------------- meta */
+(function meta() {
+  var c = M.meta.counts, ss = M.meta.sidewalk_sources;
+  $('s-seg').textContent  = c.streets.toLocaleString();
+  $('s-cell').textContent = c.hexes.toLocaleString();
+  $('s-area').textContent = M.areaKm2.toFixed(1);
 
-/* seed the form with a representative segment */
-loadIntoForm(SEG[0]);
-$('pred-box').hidden = true;
-setTimeout(function(){ map.invalidateSize(); }, 120);
+  function row(k, v){ return '<tr><td>' + k + '</td><td>' + v + '</td></tr>'; }
+  $('meta-tbl').querySelector('tbody').innerHTML =
+    row('street segments', c.streets.toLocaleString()) +
+    row('junctions in graph', c.nodes.toLocaleString()) +
+    row('true intersections', c.intersections.toLocaleString()) +
+    row('destinations (POIs)', c.pois.toLocaleString()) +
+    row('transit stops', c.transit.toLocaleString()) +
+    row('H3 res-9 cells', c.hexes.toLocaleString()) +
+    row('mapped area', M.areaKm2.toFixed(2) + ' km&sup2;') +
+    row('sidewalk from OSM tag', ss.osm_tag.toLocaleString()) +
+    row('from a mapped sidewalk', ss.parallel_footway.toLocaleString()) +
+    row('inferred from road class', ss.inferred.toLocaleString()) +
+    row('source', 'OSM relation 103703');
 
+  var pct = Math.round(100*ss.inferred/c.streets);
+  $('caveats').innerHTML =
+    '<div class="note"><b>' + pct + '% of sidewalk values are inferred.</b> OpenStreetMap simply ' +
+    'carries no sidewalk tag on those roads, so road class stood in (arterials assumed to have one, ' +
+    'residential assumed not). Those segments are flagged in the Street panel. Sidewalk presence ' +
+    'multiplies the score through <code>rho_phantom</code>, so this is the single largest source of ' +
+    'uncertainty on the map.</div>' +
+
+    '<div class="note bad"><b>The original CSV could not be placed on the map.</b> All 1,000 of its ' +
+    '<code>h3_res9</code> values — for instance <code>' + esc(W.segments[0][2]) + '</code> — fail H3 ' +
+    'validation, so they decode to nothing at all. Everything here was rebuilt from OpenStreetMap ' +
+    'instead. The “Original survey” layer lays those rows out on a reference grid purely so you can ' +
+    'still inspect them; those dots are not real locations.</div>' +
+
+    '<div class="note"><b>Normalisation was re-anchored.</b> P, T and I are min–max scaled on the 2nd ' +
+    'and 98th percentile of real Manila values, then clamped. Raw min–max let a single segment ' +
+    'standing on top of a jeepney stop own the whole transit scale and flattened everything else to ' +
+    'zero.</div>' +
+
+    '<div class="note"><b>Routing is over the real network.</b> A* runs on ' + c.nodes.toLocaleString() +
+    ' junctions and ' + c.streets.toLocaleString() + ' segments taken straight from OSM, minimising ' +
+    '<code>length &times; (1 + &alpha;(1 &minus; rank))</code>. &alpha; = 8 gives the most walkable ' +
+    'route, 2 the balanced one, 0 the shortest. Distances follow the pavement, not a hex lattice.</div>' +
+
+    '<div class="note"><b>Scores are a rubric, not a survey.</b> They combine destination density, ' +
+    'transit proximity, junction density and a road-class/sidewalk factor. They say nothing about ' +
+    'flooding, shade, crime, pavement condition or air quality — all of which shape whether a Manila ' +
+    'street is genuinely walkable.</div>';
+})();
+
+/* -------------------------------------------------------------------- boot */
+renderModelChip();
+renderLegend();
+fitManila();
+syncEnds();
+computeRoutes();
+loadIntoForm(0);
+window.addEventListener('resize', function () {
+  if (routes.length && !$('profile-wrap').hidden) renderProfile(routes[activeRoute]);
+});
 })();
 </script>
 </body>

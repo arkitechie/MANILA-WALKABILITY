@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manila Walkability — H3 res-9 transect explorer</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ─── tokens ──────────────────────────────────────────────────────────── */
+:root{
+  --ink:#0A0F18; --panel:#111A27; --panel2:#182434; --panel3:#1F2D40;
+  --line:#253449; --line2:#31445F;
+  --text:#E4EDF9; --muted:#8497B2; --dim:#5C6E8A;
+  --route:#4FD8EE; --route-soft:rgba(79,216,238,.16); --warn:#F2B33D; --bad:#E4635A;
+  /* walkability ramp, low → high */
+  --r1:#3B1F5C; --r2:#7E2F6B; --r3:#C24A5C; --r4:#EC8B3F; --r5:#F5E06B;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --disp:'Space Grotesk',var(--sans);
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sb:380px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--ink); color:var(--text); font-family:var(--sans);
+  font-size:14px; line-height:1.5; overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+:focus-visible{outline:2px solid var(--route); outline-offset:2px; border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ─── shell ───────────────────────────────────────────────────────────── */
+.shell{display:grid; grid-template-rows:auto 1fr; height:100%}
+
+.topbar{
+  display:flex; align-items:center; gap:18px; padding:10px 16px;
+  background:var(--panel); border-bottom:1px solid var(--line); z-index:1200;
+  flex-wrap:wrap;
+}
+.brand{display:flex; align-items:baseline; gap:10px; margin-right:auto}
+.brand h1{
+  font-family:var(--disp); font-size:16px; font-weight:700; margin:0;
+  letter-spacing:-.01em; white-space:nowrap;
+}
+.brand .sub{font-family:var(--mono); font-size:10.5px; color:var(--dim); letter-spacing:.06em; text-transform:uppercase}
+
+.stat{display:flex; flex-direction:column; line-height:1.15}
+.stat b{font-family:var(--mono); font-size:13px; font-weight:600}
+.stat span{font-family:var(--mono); font-size:9.5px; color:var(--dim); letter-spacing:.07em; text-transform:uppercase}
+
+.chip{
+  display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:999px;
+  border:1px solid var(--line2); background:var(--panel2);
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+}
+.chip .dot{width:6px; height:6px; border-radius:50%; background:var(--dim); flex:none}
+.chip.ok .dot{background:#5FD08A} .chip.ok{border-color:#2E5C43}
+.chip.ref .dot{background:var(--warn)} .chip.ref{border-color:#5C4A24; color:#F0D9A8}
+
+/* ─── body split ──────────────────────────────────────────────────────── */
+.split{display:grid; grid-template-columns:var(--sb) 1fr; min-height:0}
+.side{
+  background:var(--panel); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; min-height:0;
+}
+.mapwrap{position:relative; min-height:0}
+#map{position:absolute; inset:0; background:#070B12}
+
+/* ─── tabs ────────────────────────────────────────────────────────────── */
+.tabs{display:flex; border-bottom:1px solid var(--line); flex:none}
+.tabs button{
+  flex:1; padding:11px 8px; background:none; border:0; border-bottom:2px solid transparent;
+  color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:.09em;
+  text-transform:uppercase; cursor:pointer; transition:color .15s,border-color .15s;
+}
+.tabs button:hover{color:var(--muted)}
+.tabs button[aria-selected="true"]{color:var(--text); border-bottom-color:var(--route)}
+
+.pane{display:none; overflow-y:auto; padding:16px; flex:1; min-height:0}
+.pane.on{display:block}
+.pane::-webkit-scrollbar{width:9px}
+.pane::-webkit-scrollbar-thumb{background:var(--line2); border-radius:9px}
+.pane::-webkit-scrollbar-track{background:transparent}
+
+/* ─── generic blocks ──────────────────────────────────────────────────── */
+.eyebrow{
+  font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--dim); margin:0 0 9px;
+  display:flex; align-items:center; gap:8px;
+}
+.eyebrow::after{content:''; flex:1; height:1px; background:var(--line)}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:13px; margin-bottom:14px}
+.hint{font-size:12px; color:var(--muted); margin:0 0 12px}
+
+/* endpoint pickers */
+.ends{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:13px}
+.end{
+  background:var(--panel2); border:1px solid var(--line); border-left:3px solid var(--dim);
+  border-radius:7px; padding:9px 10px; min-width:0;
+}
+.end.a{border-left-color:var(--r5)} .end.b{border-left-color:var(--route)}
+.end .k{font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; color:var(--dim); text-transform:uppercase}
+.end .v{font-size:12.5px; font-weight:600; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.end .h3i{font-family:var(--mono); font-size:9.5px; color:var(--dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
+/* readout grid */
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.metric .lbl{font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--dim)}
+.metric .num{font-family:var(--disp); font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1.15}
+.metric .num small{font-family:var(--mono); font-size:11px; font-weight:500; color:var(--muted); letter-spacing:0}
+
+/* ─── SIGNATURE: walk profile tape ────────────────────────────────────── */
+.tape-wrap{margin-top:4px}
+.tape-scroll{overflow-x:auto; padding-bottom:6px}
+.tape-scroll::-webkit-scrollbar{height:7px}
+.tape-scroll::-webkit-scrollbar-thumb{background:var(--line2); border-radius:9px}
+.tape{display:block}
+.tape .est{opacity:.55}
+.tape-axis{
+  display:flex; justify-content:space-between; font-family:var(--mono);
+  font-size:9.5px; color:var(--dim); margin-top:2px;
+}
+
+/* legend */
+.legend{display:flex; align-items:center; gap:2px; margin-top:6px}
+.legend i{flex:1; height:7px; display:block}
+.legend-ax{display:flex; justify-content:space-between; font-family:var(--mono); font-size:9.5px; color:var(--dim); margin-top:4px}
+
+/* ─── form ────────────────────────────────────────────────────────────── */
+.field{margin-bottom:12px}
+.field > label{
+  display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--muted); margin-bottom:5px;
+}
+.field .unit{color:var(--dim); text-transform:none; letter-spacing:0; font-size:10px}
+input[type=text],input[type=number],select{
+  width:100%; padding:8px 10px; background:var(--panel3); color:var(--text);
+  border:1px solid var(--line2); border-radius:6px; font-family:var(--mono); font-size:12.5px;
+}
+select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 51%,calc(100% - 10px) 51%; background-size:5px 5px,5px 5px; background-repeat:no-repeat; padding-right:30px}
+input[readonly]{background:#141E2C; color:var(--muted); border-style:dashed}
+input[type=range]{width:100%; margin:7px 0 0; accent-color:var(--route)}
+.rowin{display:grid; grid-template-columns:1fr 92px; gap:8px; align-items:center}
+
+.derived{border:1px dashed var(--line2); border-radius:9px; padding:12px; margin-bottom:14px; background:rgba(31,45,64,.35)}
+.derived .top{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+.toggle{display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:10px; color:var(--muted); cursor:pointer; text-transform:uppercase; letter-spacing:.06em}
+.toggle input{accent-color:var(--route); width:14px; height:14px}
+
+.btn{
+  width:100%; padding:12px; border-radius:7px; border:1px solid var(--route);
+  background:var(--route-soft); color:var(--route); cursor:pointer;
+  font-family:var(--mono); font-size:12px; letter-spacing:.1em; text-transform:uppercase; font-weight:500;
+  transition:background .15s;
+}
+.btn:hover{background:rgba(79,216,238,.28)}
+.btn.ghost{border-color:var(--line2); background:transparent; color:var(--muted)}
+.btn.ghost:hover{background:var(--panel3); color:var(--text)}
+
+/* prediction */
+.pred{
+  background:linear-gradient(150deg,var(--panel2),#16283A); border:1px solid var(--line2);
+  border-radius:10px; padding:15px; margin:14px 0;
+}
+.pred .num{font-family:var(--disp); font-size:44px; font-weight:700; letter-spacing:-.03em; line-height:1}
+.pred .of{font-family:var(--mono); font-size:12px; color:var(--dim)}
+.bar{height:8px; background:var(--panel3); border-radius:9px; overflow:hidden; margin-top:11px}
+.bar i{display:block; height:100%; border-radius:9px; transition:width .35s ease}
+
+/* drivers */
+.drv{margin-bottom:10px}
+.drv .r1{display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12px}
+.drv .nm{font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.drv .rank{color:var(--dim); font-family:var(--mono); font-size:10px; margin-right:6px}
+.drv .val{font-family:var(--mono); font-size:11.5px; color:var(--muted); flex:none}
+.drv .track{height:5px; background:var(--panel3); border-radius:9px; overflow:hidden; margin-top:4px}
+.drv .track i{display:block; height:100%; background:var(--route); border-radius:9px; transition:width .35s ease}
+
+table.dec{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.5px}
+table.dec td{padding:5px 0; border-bottom:1px solid var(--line)}
+table.dec td:last-child{text-align:right; color:var(--muted)}
+table.dec tr:last-child td{border-bottom:0; font-weight:600; color:var(--text); padding-top:8px}
+
+/* map overlays */
+.ov{
+  position:absolute; z-index:900; background:rgba(17,26,39,.93);
+  border:1px solid var(--line); border-radius:9px; padding:11px 13px;
+  backdrop-filter:blur(9px); font-size:12px;
+}
+.ov-legend{left:12px; bottom:20px; width:210px}
+.ov-help{left:12px; top:12px; max-width:280px; color:var(--muted); line-height:1.45}
+.ov-help b{color:var(--text); font-weight:600}
+.ov-help kbd{
+  font-family:var(--mono); font-size:10.5px; background:var(--panel3);
+  border:1px solid var(--line2); border-radius:4px; padding:1px 5px; color:var(--text);
+}
+.mapbtns{position:absolute; right:12px; top:12px; z-index:900; display:flex; flex-direction:column; gap:7px}
+.mapbtn{
+  padding:8px 11px; border-radius:7px; border:1px solid var(--line);
+  background:rgba(17,26,39,.93); color:var(--muted); cursor:pointer;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+  backdrop-filter:blur(9px);
+}
+.mapbtn:hover{color:var(--text); border-color:var(--line2)}
+.mapbtn[aria-pressed="true"]{color:var(--route); border-color:var(--route)}
+
+.leaflet-container{background:#070B12; font-family:var(--sans)}
+.leaflet-control-attribution{background:rgba(10,15,24,.82)!important; color:var(--dim)!important; font-size:9.5px!important}
+.leaflet-control-attribution a{color:var(--muted)!important}
+.leaflet-bar a{background:var(--panel2)!important; color:var(--text)!important; border-color:var(--line)!important}
+.leaflet-bar a:hover{background:var(--panel3)!important}
+.leaflet-tooltip.tip{
+  background:rgba(10,15,24,.95); border:1px solid var(--line2); color:var(--text);
+  font-family:var(--mono); font-size:11px; border-radius:6px; box-shadow:none; padding:6px 9px;
+}
+.leaflet-tooltip.tip::before{display:none}
+
+.note{font-size:11.5px; color:var(--dim); line-height:1.5; margin:10px 0 0}
+.note code{font-family:var(--mono); font-size:11px; color:var(--muted)}
+
+/* ─── responsive ──────────────────────────────────────────────────────── */
+@media (max-width:900px){
+  body{overflow:auto}
+  .shell{height:auto; min-height:100%}
+  .split{grid-template-columns:1fr; grid-template-rows:auto auto}
+  .side{border-right:0; border-top:1px solid var(--line); order:2}
+  .mapwrap{order:1; height:58vh; min-height:340px; position:relative}
+  .pane{max-height:none; overflow:visible}
+  .ov-help{display:none}
+  .brand{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ══ topbar ══════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="brand">
+      <h1>Manila Walkability</h1>
+      <span class="sub">H3 · res 9 · transect explorer</span>
+    </div>
+    <div class="stat"><b id="s-seg">—</b><span>segments</span></div>
+    <div class="stat"><b id="s-cell">—</b><span>res-9 cells</span></div>
+    <div class="stat"><b id="s-r2">—</b><span>test R²</span></div>
+    <div class="chip" id="model-chip"><span class="dot"></span><span id="model-txt">loading model…</span></div>
+  </header>
+
+  <div class="split">
+    <!-- ══ sidebar ═══════════════════════════════════════════════════ -->
+    <aside class="side">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-route" aria-controls="pane-route" aria-selected="true">Route</button>
+        <button role="tab" id="tab-model" aria-controls="pane-model" aria-selected="false">Predict</button>
+        <button role="tab" id="tab-about" aria-controls="pane-about" aria-selected="false">Method</button>
+      </div>
+
+      <!-- ─── ROUTE ─── -->
+      <section class="pane on" id="pane-route" role="tabpanel" aria-labelledby="tab-route">
+        <p class="eyebrow">Endpoints</p>
+        <p class="hint">Click anywhere on the map to drop <b>A</b>, click again for <b>B</b>. Clicks snap to the nearest surveyed street.</p>
+
+        <div class="ends">
+          <div class="end a"><div class="k">A — origin</div><div class="v" id="a-name">not set</div><div class="h3i" id="a-h3">—</div></div>
+          <div class="end b"><div class="k">B — destination</div><div class="v" id="b-name">not set</div><div class="h3i" id="b-h3">—</div></div>
+        </div>
+
+        <div class="card">
+          <div class="grid2">
+            <div class="metric"><div class="lbl">Mean walk score</div><div class="num" id="r-score">—</div></div>
+            <div class="metric"><div class="lbl">Path distance</div><div class="num" id="r-dist">—</div></div>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div class="metric"><div class="lbl">Straight line</div><div class="num" id="r-crow" style="font-size:17px">—</div></div>
+            <div class="metric"><div class="lbl">Cells traversed</div><div class="num" id="r-cells" style="font-size:17px">—</div></div>
+          </div>
+        </div>
+
+        <p class="eyebrow">Walk profile</p>
+        <div class="tape-wrap">
+          <div class="tape-scroll"><svg class="tape" id="tape" height="66" width="100%" role="img" aria-label="Walkability profile along the route"></svg></div>
+          <div class="tape-axis"><span id="tape-a">A</span><span id="tape-b">B</span></div>
+          <p class="note" id="tape-note">Each hexagon is one H3 res-9 cell along the path. Faded hexagons are inverse-distance estimates for cells with no surveyed segment.</p>
+        </div>
+
+        <button class="btn ghost" id="btn-clear" style="margin-top:14px">Clear route</button>
+      </section>
+
+      <!-- ─── MODEL ─── -->
+      <section class="pane" id="pane-model" role="tabpanel" aria-labelledby="tab-model">
+        <p class="eyebrow">Categorical features</p>
+        <p class="hint">Five categorical columns are one-hot encoded (<code>drop_first</code>); their label-encoded partners fill in automatically.</p>
+
+        <div class="field">
+          <label for="f-name">name <span class="unit" id="e-name">—</span></label>
+          <select id="f-name"></select>
+        </div>
+        <div class="field">
+          <label for="f-osmid">osmid <span class="unit" id="e-osmid">—</span></label>
+          <select id="f-osmid"></select>
+        </div>
+        <div class="field">
+          <label for="f-h3">h3_res9 <span class="unit" id="e-h3">—</span></label>
+          <select id="f-h3"></select>
+        </div>
+        <div class="field">
+          <label for="f-highway">highway <span class="unit" id="e-highway">—</span></label>
+          <select id="f-highway"></select>
+        </div>
+        <div class="field">
+          <label for="f-sidewalk">sidewalk <span class="unit" id="e-sidewalk">—</span></label>
+          <select id="f-sidewalk"></select>
+        </div>
+
+        <p class="eyebrow">Measured features</p>
+        <div class="field">
+          <label for="f-poi">poi_count_400m <span class="unit">count</span></label>
+          <div class="rowin"><input type="range" id="f-poi-r" min="0" max="149" step="1"><input type="number" id="f-poi" min="0" max="149" step="1"></div>
+        </div>
+        <div class="field">
+          <label for="f-dist">dist_to_transit_m <span class="unit">metres</span></label>
+          <div class="rowin"><input type="range" id="f-dist-r" min="10" max="1999" step="1"><input type="number" id="f-dist" min="1" step="0.001"></div>
+        </div>
+        <div class="field">
+          <label for="f-idn">intersection_density <span class="unit">per km²</span></label>
+          <div class="rowin"><input type="range" id="f-idn-r" min="50" max="400" step="0.1"><input type="number" id="f-idn" step="0.0001"></div>
+        </div>
+
+        <div class="derived">
+          <div class="top">
+            <span class="eyebrow" style="margin:0">Derived</span>
+            <label class="toggle"><input type="checkbox" id="auto-derive" checked> auto</label>
+          </div>
+          <div class="grid2">
+            <div class="field" style="margin:0"><label for="f-P">P_norm</label><input type="number" id="f-P" step="0.0001" readonly></div>
+            <div class="field" style="margin:0"><label for="f-T">T_norm</label><input type="number" id="f-T" step="0.0001" readonly></div>
+          </div>
+          <div class="grid2" style="margin-top:10px">
+            <div class="field" style="margin:0"><label for="f-I">I_norm</label><input type="number" id="f-I" step="0.0001" readonly></div>
+            <div class="field" style="margin:0"><label for="f-rho">rho_phantom</label><input type="number" id="f-rho" step="0.01" readonly></div>
+          </div>
+        </div>
+
+        <label class="toggle" style="margin-bottom:12px"><input type="checkbox" id="use-scaled" checked> feed robust-scaled vector to score()</label>
+        <button class="btn" id="btn-predict">Run prediction</button>
+
+        <div class="pred" id="pred-box" hidden>
+          <div class="lbl" style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)">Predicted true_walkability_score_v2</div>
+          <div class="num" id="pred-num">—</div>
+          <div class="of" id="pred-of"></div>
+          <div class="bar"><i id="pred-bar" style="width:0%"></i></div>
+        </div>
+
+        <p class="eyebrow">Top 5 drivers</p>
+        <div id="drivers"></div>
+
+        <p class="eyebrow" style="margin-top:18px">Score decomposition</p>
+        <table class="dec" id="decomp"><tbody></tbody></table>
+        <p class="note" id="decomp-note"></p>
+      </section>
+
+      <!-- ─── ABOUT ─── -->
+      <section class="pane" id="pane-about" role="tabpanel" aria-labelledby="tab-about">
+        <p class="eyebrow">Pipeline</p>
+        <table class="dec"><tbody id="meta-tbl"></tbody></table>
+
+        <p class="eyebrow" style="margin-top:18px">Feature vector</p>
+        <table class="dec"><tbody>
+          <tr><td>numeric (robust-scaled)</td><td>12</td></tr>
+          <tr><td>osmid one-hot</td><td>999</td></tr>
+          <tr><td>name one-hot</td><td>493</td></tr>
+          <tr><td>h3_res9 one-hot</td><td>999</td></tr>
+          <tr><td>highway one-hot</td><td>7</td></tr>
+          <tr><td>sidewalk one-hot</td><td>3</td></tr>
+          <tr><td>total</td><td>2513</td></tr>
+        </tbody></table>
+
+        <p class="eyebrow" style="margin-top:18px">Notes</p>
+        <p class="note" id="about-notes"></p>
+      </section>
+    </aside>
+
+    <!-- ══ map ═══════════════════════════════════════════════════════ -->
+    <div class="mapwrap">
+      <div id="map"></div>
+
+      <div class="ov ov-help">
+        <b>Click the map</b> to set A, then B. The route follows the H3 res-9 grid.
+        Press <kbd>Esc</kbd> to clear.
+      </div>
+
+      <div class="mapbtns">
+        <button class="mapbtn" id="mb-hex" aria-pressed="true">Hex fill</button>
+        <button class="mapbtn" id="mb-bound" aria-pressed="true">Boundary</button>
+        <button class="mapbtn" id="mb-fit">Fit city</button>
+      </div>
+
+      <div class="ov ov-legend">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim)">Walkability score</div>
+        <div class="legend" id="legend"></div>
+        <div class="legend-ax"><span id="lg-lo">0</span><span id="lg-hi">71</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script src="data.js"></script>
+<script src="model.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════════════
+   0 · guards
+   ═══════════════════════════════════════════════════════════════════════ */
+var D = window.WALK_DATA;
+if(!D){ document.body.innerHTML='<p style="padding:30px;font-family:monospace">data.js failed to load — keep index.html, data.js and model.js in the same folder.</p>'; return; }
+var H3 = window.h3;
+if(!H3){ console.warn('h3-js unavailable'); }
+
+var SEG = D.segments, SC = D.schema;
+var IX = {}; SC.forEach(function(k,i){ IX[k]=i; });
+
+/* ═══════════════════════════════════════════════════════════════════════
+   1 · colour ramp
+   ═══════════════════════════════════════════════════════════════════════ */
+var RAMP = ['#3B1F5C','#7E2F6B','#C24A5C','#EC8B3F','#F5E06B'];
+var SMIN = Infinity, SMAX = -Infinity;
+SEG.forEach(function(s){ var v=s[IX.score]; if(v<SMIN)SMIN=v; if(v>SMAX)SMAX=v; });
+
+function hex2rgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+var RGB = RAMP.map(hex2rgb);
+
+function colourFor(v){
+  var t = (v - SMIN)/(SMAX - SMIN);
+  t = t<0?0:t>1?1:t;
+  var f = t*(RGB.length-1), i = Math.floor(f), k = f-i;
+  if(i>=RGB.length-1) return RAMP[RGB.length-1];
+  var a=RGB[i], b=RGB[i+1];
+  return 'rgb('+Math.round(a[0]+(b[0]-a[0])*k)+','+Math.round(a[1]+(b[1]-a[1])*k)+','+Math.round(a[2]+(b[2]-a[2])*k)+')';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   2 · decode H3 → geometry
+   ═══════════════════════════════════════════════════════════════════════ */
+var byCell = Object.create(null);   // h3 → segment row
+var pts = [];                       // {lat,lng,i}
+SEG.forEach(function(s,i){
+  var c = s[IX.h3];
+  byCell[c] = s;
+  if(H3){
+    try{
+      var ll = H3.cellToLatLng(c);
+      pts.push({lat:ll[0], lng:ll[1], i:i});
+      s.__ll = ll;
+    }catch(e){}
+  }
+});
+
+function haversine(a1,o1,a2,o2){
+  var R=6371000, r=Math.PI/180;
+  var dA=(a2-a1)*r, dO=(o2-o1)*r;
+  var x=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(a1*r)*Math.cos(a2*r)*Math.sin(dO/2)*Math.sin(dO/2);
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));
+}
+
+/* convex hull (monotone chain) over cell centroids → city outline */
+function hull(P){
+  if(P.length<3) return P.slice();
+  var s = P.slice().sort(function(a,b){ return a.lng-b.lng || a.lat-b.lat; });
+  var cr=function(o,a,b){ return (a.lng-o.lng)*(b.lat-o.lat)-(a.lat-o.lat)*(b.lng-o.lng); };
+  var lo=[],up=[],i;
+  for(i=0;i<s.length;i++){ while(lo.length>=2 && cr(lo[lo.length-2],lo[lo.length-1],s[i])<=0) lo.pop(); lo.push(s[i]); }
+  for(i=s.length-1;i>=0;i--){ while(up.length>=2 && cr(up[up.length-2],up[up.length-1],s[i])<=0) up.pop(); up.push(s[i]); }
+  lo.pop(); up.pop();
+  return lo.concat(up);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   3 · map
+   ═══════════════════════════════════════════════════════════════════════ */
+var map = L.map('map',{ preferCanvas:true, zoomControl:true, minZoom:10, maxZoom:18 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  attribution:'&copy; OpenStreetMap contributors &copy; CARTO · H3 res-9 · walkability model',
+  subdomains:'abcd', maxZoom:19
+}).addTo(map);
+
+var hexLayer   = L.layerGroup().addTo(map);
+var boundLayer = L.layerGroup().addTo(map);
+var routeLayer = L.layerGroup().addTo(map);
+
+var hexRefs = [];
+if(H3){
+  SEG.forEach(function(s,i){
+    var b;
+    try{ b = H3.cellToBoundary(s[IX.h3]); }catch(e){ return; }
+    var poly = L.polygon(b,{
+      color:'#0A0F18', weight:.5, opacity:.55,
+      fillColor:colourFor(s[IX.score]), fillOpacity:.72,
+      bubblingMouseEvents:false
+    });
+    poly.bindTooltip(
+      '<b>'+esc(s[IX.name])+'</b><br>'+esc(s[IX.highway])+' · sidewalk '+esc(s[IX.sidewalk])+
+      '<br>score '+s[IX.score].toFixed(2)+' · POI '+s[IX.poi]+' · transit '+Math.round(s[IX.dist])+' m',
+      {className:'tip', sticky:true});
+    poly.on('click', function(ev){ L.DomEvent.stop(ev); pick(i); });
+    poly.addTo(hexLayer);
+    hexRefs.push(poly);
+  });
+
+  var H = hull(pts);
+  if(H.length>2){
+    L.polygon(H.map(function(p){return [p.lat,p.lng];}),{
+      color:'#7FA8C9', weight:2, opacity:.9, dashArray:'7 5',
+      fill:true, fillColor:'#4FD8EE', fillOpacity:.03, interactive:false
+    }).addTo(boundLayer);
+  }
+  var bnds = L.latLngBounds(pts.map(function(p){return [p.lat,p.lng];}));
+  map.fitBounds(bnds,{padding:[28,28]});
+}else{
+  map.setView([14.5995,120.9842],13);
+}
+
+function esc(t){ return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   4 · route selection
+   ═══════════════════════════════════════════════════════════════════════ */
+var A=null, B=null;
+
+function nearest(lat,lng){
+  var best=-1, bd=Infinity;
+  for(var i=0;i<pts.length;i++){
+    var d=(pts[i].lat-lat)*(pts[i].lat-lat)+(pts[i].lng-lng)*(pts[i].lng-lng);
+    if(d<bd){ bd=d; best=pts[i].i; }
+  }
+  return best;
+}
+
+map.on('click', function(e){ if(pts.length) pick(nearest(e.latlng.lat,e.latlng.lng)); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') clearRoute(); });
+
+function pick(i){
+  if(A===null || (A!==null && B!==null)){ A=i; B=null; }
+  else if(i!==A){ B=i; }
+  syncEnds(); drawRoute();
+  if(B===null) loadIntoForm(SEG[i]);
+}
+
+function clearRoute(){ A=null; B=null; syncEnds(); drawRoute(); }
+document.getElementById('btn-clear').addEventListener('click', clearRoute);
+
+function syncEnds(){
+  var a=A!==null?SEG[A]:null, b=B!==null?SEG[B]:null;
+  document.getElementById('a-name').textContent = a? a[IX.name] : 'not set';
+  document.getElementById('a-h3').textContent   = a? a[IX.h3]+' · '+a[IX.score].toFixed(2) : '—';
+  document.getElementById('b-name').textContent = b? b[IX.name] : 'not set';
+  document.getElementById('b-h3').textContent   = b? b[IX.h3]+' · '+b[IX.score].toFixed(2) : '—';
+  document.getElementById('tape-a').textContent = a? 'A · '+a[IX.name] : 'A';
+  document.getElementById('tape-b').textContent = b? 'B · '+b[IX.name] : 'B';
+}
+
+/* inverse-distance estimate for path cells with no surveyed segment */
+function idw(lat,lng,k){
+  var arr=[], i;
+  for(i=0;i<pts.length;i++){
+    var d=haversine(lat,lng,pts[i].lat,pts[i].lng);
+    arr.push({d:d,i:pts[i].i});
+  }
+  arr.sort(function(x,y){return x.d-y.d;});
+  var num=0,den=0;
+  for(i=0;i<Math.min(k,arr.length);i++){
+    var w=1/Math.pow(Math.max(arr[i].d,1),2);
+    num+=w*SEG[arr[i].i][IX.score]; den+=w;
+  }
+  return den? num/den : 0;
+}
+
+function drawRoute(){
+  routeLayer.clearLayers();
+  var blank=['r-score','r-dist','r-crow','r-cells'];
+
+  if(A!==null){
+    var a=SEG[A];
+    L.circleMarker(a.__ll,{radius:7,color:'#F5E06B',weight:2.5,fillColor:'#0A0F18',fillOpacity:1}).addTo(routeLayer);
+  }
+  if(B!==null){
+    var b=SEG[B];
+    L.circleMarker(b.__ll,{radius:7,color:'#4FD8EE',weight:2.5,fillColor:'#0A0F18',fillOpacity:1}).addTo(routeLayer);
+  }
+
+  if(A===null || B===null || !H3){
+    blank.forEach(function(id){ document.getElementById(id).textContent='—'; });
+    renderTape([]);
+    return;
+  }
+
+  var ca=SEG[A][IX.h3], cb=SEG[B][IX.h3], path;
+  try{ path = H3.gridPathCells(ca,cb); }
+  catch(err){ path=[ca,cb]; }
+  if(!path || !path.length) path=[ca,cb];
+
+  var prof=[], coords=[], dist=0, prev=null;
+  path.forEach(function(c){
+    var ll; try{ ll=H3.cellToLatLng(c); }catch(e){ return; }
+    coords.push(ll);
+    if(prev) dist += haversine(prev[0],prev[1],ll[0],ll[1]);
+    prev = ll;
+    var row = byCell[c];
+    prof.push(row
+      ? {c:c, v:row[IX.score], est:false, nm:row[IX.name]}
+      : {c:c, v:idw(ll[0],ll[1],5), est:true, nm:'unsurveyed cell'});
+  });
+
+  L.polyline(coords,{color:'#4FD8EE',weight:3.5,opacity:.95}).addTo(routeLayer);
+  L.polyline(coords,{color:'#4FD8EE',weight:11,opacity:.13}).addTo(routeLayer);
+
+  var mean = prof.reduce(function(s,p){return s+p.v;},0)/prof.length;
+  var surveyed = prof.filter(function(p){return !p.est;}).length;
+  var crow = haversine(SEG[A].__ll[0],SEG[A].__ll[1],SEG[B].__ll[0],SEG[B].__ll[1]);
+
+  document.getElementById('r-score').innerHTML = mean.toFixed(1)+' <small>/ 100</small>';
+  document.getElementById('r-dist').innerHTML  = fmtM(dist);
+  document.getElementById('r-crow').innerHTML  = fmtM(crow);
+  document.getElementById('r-cells').innerHTML = prof.length+' <small>('+surveyed+' surveyed)</small>';
+
+  renderTape(prof);
+}
+
+function fmtM(m){
+  return m>=1000 ? (m/1000).toFixed(2)+' <small>km</small>' : Math.round(m)+' <small>m</small>';
+}
+
+/* ─── signature: walk profile tape ─── */
+function renderTape(prof){
+  var svg=document.getElementById('tape'), NS='http://www.w3.org/2000/svg';
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  if(!prof.length){ svg.setAttribute('width','100%'); return; }
+
+  var w=17, h=19, gap=2.5, pad=8;
+  var W = pad*2 + prof.length*(w+gap);
+  svg.setAttribute('width', Math.max(W,240));
+  svg.setAttribute('viewBox','0 0 '+Math.max(W,240)+' 66');
+
+  var maxV = Math.max(SMAX, 1);
+
+  prof.forEach(function(p,i){
+    var x = pad + i*(w+gap);
+    var barH = 30 * (p.v/maxV);
+    // score column
+    var r=document.createElementNS(NS,'rect');
+    r.setAttribute('x',x+2); r.setAttribute('y',34-barH);
+    r.setAttribute('width',w-4); r.setAttribute('height',Math.max(barH,1));
+    r.setAttribute('fill',colourFor(p.v)); r.setAttribute('rx',1.5);
+    if(p.est) r.setAttribute('class','est');
+    svg.appendChild(r);
+    // hexagon marker
+    var cx=x+w/2, cy=48, rr=6.6, d='';
+    for(var k=0;k<6;k++){
+      var ang=Math.PI/180*(60*k-30);
+      d += (k?'L':'M')+(cx+rr*Math.cos(ang)).toFixed(2)+','+(cy+rr*Math.sin(ang)).toFixed(2);
+    }
+    var hx=document.createElementNS(NS,'path');
+    hx.setAttribute('d',d+'Z');
+    hx.setAttribute('fill',colourFor(p.v));
+    hx.setAttribute('stroke', p.est ? '#5C6E8A' : '#0A0F18');
+    hx.setAttribute('stroke-width', p.est ? '1' : '.6');
+    hx.setAttribute('stroke-dasharray', p.est ? '2 1.6' : '');
+    if(p.est) hx.setAttribute('class','est');
+    var t=document.createElementNS(NS,'title');
+    t.textContent = p.nm+' — '+p.v.toFixed(2)+(p.est?' (estimated)':'')+'\n'+p.c;
+    hx.appendChild(t);
+    svg.appendChild(hx);
+  });
+
+  // baseline
+  var ln=document.createElementNS(NS,'line');
+  ln.setAttribute('x1',0); ln.setAttribute('x2',Math.max(W,240));
+  ln.setAttribute('y1',35); ln.setAttribute('y2',35);
+  ln.setAttribute('stroke','#253449'); ln.setAttribute('stroke-width','1');
+  svg.insertBefore(ln, svg.firstChild);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   5 · map toggles
+   ═══════════════════════════════════════════════════════════════════════ */
+function toggleBtn(id, on, off){
+  var el=document.getElementById(id);
+  el.addEventListener('click',function(){
+    var next = el.getAttribute('aria-pressed')!=='true';
+    el.setAttribute('aria-pressed', next?'true':'false');
+    next?on():off();
+  });
+}
+toggleBtn('mb-hex', function(){map.addLayer(hexLayer);},  function(){map.removeLayer(hexLayer);});
+toggleBtn('mb-bound',function(){map.addLayer(boundLayer);},function(){map.removeLayer(boundLayer);});
+document.getElementById('mb-fit').addEventListener('click',function(){
+  if(pts.length) map.fitBounds(L.latLngBounds(pts.map(function(p){return [p.lat,p.lng];})),{padding:[28,28]});
+});
+
+/* legend */
+(function(){
+  var lg=document.getElementById('legend');
+  for(var i=0;i<=40;i++){
+    var s=document.createElement('i');
+    s.style.background=colourFor(SMIN+(SMAX-SMIN)*(i/40));
+    lg.appendChild(s);
+  }
+  document.getElementById('lg-lo').textContent=SMIN.toFixed(1);
+  document.getElementById('lg-hi').textContent=SMAX.toFixed(1);
+})();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   6 · tabs
+   ═══════════════════════════════════════════════════════════════════════ */
+['route','model','about'].forEach(function(k){
+  document.getElementById('tab-'+k).addEventListener('click',function(){
+    ['route','model','about'].forEach(function(j){
+      var t=document.getElementById('tab-'+j), p=document.getElementById('pane-'+j);
+      t.setAttribute('aria-selected', j===k?'true':'false');
+      p.classList.toggle('on', j===k);
+    });
+    if(k==='route') setTimeout(function(){map.invalidateSize();},50);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   7 · preprocessing  (one-hot + robust scaling → 2513-vector)
+   ═══════════════════════════════════════════════════════════════════════ */
+var CAT = D.categories, ENC = D.encoders, K = D.constants, SCL = D.scaler, RHO = D.rho;
+var NUMC = D.featureOrder.numeric, BLK = D.featureOrder.blocks, NTOT = D.featureOrder.total;
+
+/* index maps for O(1) one-hot lookup */
+var CATIX = {};
+Object.keys(CAT).forEach(function(col){
+  var m=Object.create(null);
+  CAT[col].forEach(function(v,i){ m[v]=i; });
+  CATIX[col]=m;
+});
+
+function mm(v,lo,hi){ return hi===lo?0:(v-lo)/(hi-lo); }
+
+function derive(poi,dist,idn,highway,sidewalk){
+  var d = (dist > 0.01) ? dist : 0.01;          // T_norm inverts distance
+  return {
+    P_norm: mm(poi, K.poi[0], K.poi[1]),
+    T_norm: mm(1/d, K.inv[0], K.inv[1]),
+    I_norm: mm(idn, K.idn[0], K.idn[1]),
+    rho_phantom: (RHO[highway] && RHO[highway][sidewalk] != null) ? RHO[highway][sidewalk] : 0.4
+  };
+}
+
+/**
+ * Build the model input vector.
+ * @param {Object} f  raw feature object
+ * @param {Boolean} scaled  apply RobustScaler to the 12 numeric columns
+ * @returns {Float64Array} length 2513, matching expected_feature_order
+ */
+function buildVector(f, scaled){
+  var x = new Float64Array(NTOT);
+  var raw = {
+    osmid_encoded: f.osmid_encoded, name_encoded: f.name_encoded,
+    h3_res9_encoded: f.h3_res9_encoded, highway_encoded: f.highway_encoded,
+    sidewalk_encoded: f.sidewalk_encoded,
+    poi_count_400m: f.poi_count_400m, dist_to_transit_m: f.dist_to_transit_m,
+    intersection_density: f.intersection_density,
+    P_norm: f.P_norm, T_norm: f.T_norm, I_norm: f.I_norm, rho_phantom: f.rho_phantom
+  };
+  NUMC.forEach(function(c,i){
+    var v = raw[c];
+    if(scaled){ var p=SCL[c]; v = (v - p[0]) / p[1]; }
+    x[i] = v;
+  });
+  [['osmid',f.osmid],['name',f.name],['h3_res9',f.h3_res9],
+   ['highway',f.highway],['sidewalk',f.sidewalk]].forEach(function(pair){
+    var col=pair[0], val=String(pair[1]);
+    var j = CATIX[col][val];              // undefined ⇒ the dropped-first level ⇒ all-zero
+    if(j!==undefined) x[BLK[col][0]+j] = 1;
+  });
+  return x;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   8 · model binding
+   ═══════════════════════════════════════════════════════════════════════ */
+var MODEL = (typeof window.score === 'function') ? window.score : null;
+var MINFO = window.MODEL_INFO || {};
+(function(){
+  var chip=document.getElementById('model-chip'), txt=document.getElementById('model-txt');
+  if(!MODEL){ chip.className='chip'; txt.textContent='no score() found'; return; }
+  if(MINFO.kind==='reference'){ chip.className='chip ref'; txt.textContent='reference scorer'; }
+  else { chip.className='chip ok'; txt.textContent='model.js loaded'; }
+})();
+/* the reference scorer reads unscaled P/T/I/rho */
+if(MINFO.kind==='reference') document.getElementById('use-scaled').checked=false;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   9 · form
+   ═══════════════════════════════════════════════════════════════════════ */
+function opts(sel, values, labeller){
+  var frag=document.createDocumentFragment();
+  values.forEach(function(v){
+    var o=document.createElement('option');
+    o.value=v; o.textContent=labeller?labeller(v):v;
+    frag.appendChild(o);
+  });
+  sel.appendChild(frag);
+}
+function uniq(a){ var s=Object.create(null), o=[]; a.forEach(function(v){ if(!s[v]){s[v]=1;o.push(v);} }); return o; }
+
+var allNames = uniq(SEG.map(function(s){return s[IX.name];})).sort();
+var allOsmid = uniq(SEG.map(function(s){return s[IX.osmid];})).sort();
+var allH3    = uniq(SEG.map(function(s){return s[IX.h3];})).sort();
+var allHw    = uniq(SEG.map(function(s){return s[IX.highway];})).sort();
+var allSw    = uniq(SEG.map(function(s){return s[IX.sidewalk];})).sort();
+
+opts(document.getElementById('f-name'),    allNames);
+opts(document.getElementById('f-osmid'),   allOsmid);
+opts(document.getElementById('f-h3'),      allH3);
+opts(document.getElementById('f-highway'), allHw);
+opts(document.getElementById('f-sidewalk'),allSw);
+
+var $ = function(id){ return document.getElementById(id); };
+
+/* keep slider ↔ number pairs in step */
+[['f-poi','f-poi-r'],['f-dist','f-dist-r'],['f-idn','f-idn-r']].forEach(function(p){
+  var n=$(p[0]), r=$(p[1]);
+  n.addEventListener('input',function(){ r.value=n.value; refresh(); });
+  r.addEventListener('input',function(){ n.value=r.value; refresh(); });
+});
+['f-name','f-osmid','f-h3','f-highway','f-sidewalk'].forEach(function(id){
+  $(id).addEventListener('change', refresh);
+});
+$('auto-derive').addEventListener('change',function(){
+  var ro=this.checked;
+  ['f-P','f-T','f-I','f-rho'].forEach(function(id){ $(id).readOnly=ro; });
+  if(ro) refresh();
+});
+
+function currentRaw(){
+  var hw=$('f-highway').value, sw=$('f-sidewalk').value;
+  var poi=+$('f-poi').value, dist=+$('f-dist').value, idn=+$('f-idn').value;
+  var d = $('auto-derive').checked
+    ? derive(poi,dist,idn,hw,sw)
+    : {P_norm:+$('f-P').value, T_norm:+$('f-T').value, I_norm:+$('f-I').value, rho_phantom:+$('f-rho').value};
+  return {
+    osmid:$('f-osmid').value, name:$('f-name').value, h3_res9:$('f-h3').value,
+    highway:hw, sidewalk:sw,
+    osmid_encoded: ENC.osmid[$('f-osmid').value] || 0,
+    name_encoded:  ENC.name[$('f-name').value] || 0,
+    h3_res9_encoded: ENC.h3_res9[$('f-h3').value] || 0,
+    highway_encoded: ENC.highway[hw] || 0,
+    sidewalk_encoded: ENC.sidewalk[sw] || 0,
+    poi_count_400m:poi, dist_to_transit_m:dist, intersection_density:idn,
+    P_norm:d.P_norm, T_norm:d.T_norm, I_norm:d.I_norm, rho_phantom:d.rho_phantom
+  };
+}
+
+function refresh(){
+  var f=currentRaw();
+  if($('auto-derive').checked){
+    $('f-P').value=f.P_norm.toFixed(6);
+    $('f-T').value=f.T_norm.toFixed(6);
+    $('f-I').value=f.I_norm.toFixed(6);
+    $('f-rho').value=f.rho_phantom;
+  }
+  $('e-osmid').textContent   = 'enc '+f.osmid_encoded;
+  $('e-name').textContent    = 'enc '+f.name_encoded;
+  $('e-h3').textContent      = 'enc '+f.h3_res9_encoded;
+  $('e-highway').textContent = 'enc '+f.highway_encoded;
+  $('e-sidewalk').textContent= 'enc '+f.sidewalk_encoded;
+  drawDrivers(f);
+}
+
+function loadIntoForm(s){
+  $('f-name').value=s[IX.name]; $('f-osmid').value=s[IX.osmid]; $('f-h3').value=s[IX.h3];
+  $('f-highway').value=s[IX.highway]; $('f-sidewalk').value=s[IX.sidewalk];
+  $('f-poi').value=s[IX.poi];   $('f-poi-r').value=s[IX.poi];
+  $('f-dist').value=s[IX.dist]; $('f-dist-r').value=Math.round(s[IX.dist]);
+  $('f-idn').value=s[IX.idn];   $('f-idn-r').value=s[IX.idn];
+  refresh();
+  predict(s[IX.score], true);   // quiet: no alert on auto-load
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   10 · prediction + drivers
+   ═══════════════════════════════════════════════════════════════════════ */
+function predict(actual, quiet){
+  if(!MODEL){
+    if(!quiet) alert('No score() function is loaded. Put your model.js next to index.html.');
+    return;
+  }
+  var f=currentRaw();
+  var vec=buildVector(f, $('use-scaled').checked);
+  var y;
+  try{ y=MODEL(vec); }
+  catch(err){
+    if(!quiet) alert('score() threw: '+err.message);
+    console.error('score() failed', err);
+    return;
+  }
+
+  $('pred-box').hidden=false;
+  $('pred-num').textContent = (typeof y==='number'? y.toFixed(2) : String(y));
+  $('pred-num').style.color = colourFor(+y);
+  $('pred-of').textContent = (actual!=null)
+      ? 'observed in dataset: '+actual.toFixed(2)+'  ·  Δ '+(Math.abs(y-actual)).toFixed(2)
+      : 'range in training data: '+SMIN.toFixed(2)+' – '+SMAX.toFixed(2);
+  var pc=Math.max(0,Math.min(100, (y-SMIN)/(SMAX-SMIN)*100));
+  $('pred-bar').style.width=pc+'%';
+  $('pred-bar').style.background=colourFor(+y);
+  drawDecomp(f, y);
+}
+$('btn-predict').addEventListener('click',function(){ predict(null); });
+
+var TOP5 = D.meta.top_5_influential_features;
+var RANGE = {
+  rho_phantom:[0.1,1.0], P_norm:[0,1], T_norm:[0,1], I_norm:[0,1],
+  highway_encoded:[0,allHw.length-1], sidewalk_encoded:[0,allSw.length-1],
+  poi_count_400m:K.poi, dist_to_transit_m:K.dist, intersection_density:K.idn,
+  osmid_encoded:[0,999], name_encoded:[0,493], h3_res9_encoded:[0,999]
+};
+function drawDrivers(f){
+  var box=$('drivers'); box.innerHTML='';
+  TOP5.forEach(function(name,i){
+    var v=f[name], r=RANGE[name]||[0,1];
+    var pc=Math.max(0,Math.min(100,(v-r[0])/((r[1]-r[0])||1)*100));
+    var d=document.createElement('div'); d.className='drv';
+    d.innerHTML='<div class="r1"><span class="nm"><span class="rank">'+(i+1)+'</span>'+esc(name)+
+                '</span><span class="val">'+(typeof v==='number'? (Math.abs(v)>=100? v.toFixed(0): v.toFixed(3)) : v)+
+                '</span></div><div class="track"><i style="width:'+pc.toFixed(1)+'%"></i></div>';
+    box.appendChild(d);
+  });
+}
+
+function drawDecomp(f,y){
+  var tb=$('decomp').querySelector('tbody'); tb.innerHTML='';
+  var parts=[
+    ['POI access  ρ · 40 · P_norm',  f.rho_phantom*40*f.P_norm],
+    ['Transit     ρ · 30 · T_norm',  f.rho_phantom*30*f.T_norm],
+    ['Street grid ρ · 30 · I_norm',  f.rho_phantom*30*f.I_norm]
+  ];
+  var sum=parts.reduce(function(s,p){return s+p[1];},0);
+  parts.forEach(function(p){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+esc(p[0])+'</td><td>'+p[1].toFixed(2)+'  ('+(sum? (p[1]/sum*100).toFixed(0):0)+'%)</td>';
+    tb.appendChild(tr);
+  });
+  var tr=document.createElement('tr');
+  tr.innerHTML='<td>analytic total</td><td>'+sum.toFixed(2)+'</td>';
+  tb.appendChild(tr);
+  $('decomp-note').innerHTML = 'Exact decomposition of the generating rule recovered from the training CSV '+
+    '(R² = 0.99999996). Your loaded model returned <code>'+(typeof y==='number'?y.toFixed(2):'—')+'</code>; '+
+    'gaps between the two are model error, not data noise.';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   11 · about pane + boot
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  var m=D.meta, tb=$('meta-tbl');
+  [['problem type',m.problem_type],['target',m.target_column],['model',m.winning_model_type],
+   ['params',m.best_params],['scaler',m.scaler_used+' (median / IQR)'],
+   ['test score',(+m.final_test_score).toFixed(4)]].forEach(function(r){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td>';
+    tb.appendChild(tr);
+  });
+  $('about-notes').innerHTML =
+    'Coordinates come from decoding each <code>h3_res9</code> index — the CSV carries no latitude or longitude. '+
+    'The dashed outline is the convex hull of the 1,000 surveyed cell centroids, so it traces the surveyed extent '+
+    'rather than the legal city limit; define <code>window.MANILA_BOUNDARY</code> as a GeoJSON polygon to draw the '+
+    'administrative border instead. RobustScaler medians and IQRs were recomputed from the CSV, since '+
+    '<code>app_intelligence.json</code> ships the scaler name but not its fitted parameters.';
+})();
+
+$('s-seg').textContent  = SEG.length.toLocaleString();
+$('s-cell').textContent = Object.keys(byCell).length.toLocaleString();
+$('s-r2').textContent   = (+D.meta.final_test_score).toFixed(4);
+
+/* seed the form with a representative segment */
+loadIntoForm(SEG[0]);
+$('pred-box').hidden = true;
+setTimeout(function(){ map.invalidateSize(); }, 120);
+
+})();
+</script>
+</body>
+</html>

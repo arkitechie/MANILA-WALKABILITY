@@ -1,0 +1,10 @@
+# Raw Overpass downloads — ~10 MB, re-fetchable with build/fetch_osm.py
+build/cache/
+
+# Headless-Chrome scratch from build/drive.py and build/zoomcheck.py
+build/cp2/
+build/chromeprofile/
+*.png.tmp
+
+__pycache__/
+*.pyc
