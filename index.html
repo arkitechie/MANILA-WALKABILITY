@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Manila Walkability Explorer — H3 Res 9</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ===== Header ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">⬡</span>
+      <div class="brand-text">
+        <h1>Manila Walkability Explorer</h1>
+        <p>H3 res‑9 street grid · Gradient Boosting walkability model</p>
+      </div>
+    </div>
+    <div class="topbar-stats" id="topbarStats">
+      <div class="stat"><span class="stat-value" id="statSegments">–</span><span class="stat-label">segments</span></div>
+      <div class="stat"><span class="stat-value" id="statAvg">–</span><span class="stat-label">avg score</span></div>
+      <div class="stat"><span class="stat-value">98.5%</span><span class="stat-label">model R²</span></div>
+    </div>
+  </header>
+
+  <div class="body-grid">
+
+    <!-- ===== Map ===== -->
+    <main class="map-pane">
+      <div id="map"></div>
+
+      <div class="map-overlay" id="mapInstructions">
+        <strong>①</strong> Click a hex cell to set <strong>start</strong> &nbsp;·&nbsp;
+        <strong>②</strong> click another to set <strong>end</strong>
+        <button id="resetRouteBtn" class="ghost-btn" title="Clear selection">Reset</button>
+      </div>
+
+      <div class="legend" id="legend">
+        <div class="legend-title">Walkability score</div>
+        <div class="legend-scale"></div>
+        <div class="legend-labels"><span>Low</span><span>High</span></div>
+      </div>
+    </main>
+
+    <!-- ===== Side panel ===== -->
+    <aside class="side-pane">
+
+      <section class="card" id="routeCard">
+        <h2>Route score</h2>
+        <div id="routeEmpty" class="empty-state">
+          Pick two points on the map to see the average walkability score and distance between them.
+        </div>
+
+        <div id="routeResult" class="hidden">
+          <div class="route-endpoints">
+            <div><span class="dot dot-start"></span> <span id="originName">–</span></div>
+            <div><span class="dot dot-end"></span> <span id="destName">–</span></div>
+          </div>
+
+          <div class="score-big">
+            <div class="score-number" id="avgScoreNum">–</div>
+            <div class="score-caption">avg. walkability (0–100 scale)</div>
+          </div>
+
+          <div class="metric-row">
+            <div class="metric">
+              <div class="metric-value" id="distanceVal">–</div>
+              <div class="metric-label">distance</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value" id="hopsVal">–</div>
+              <div class="metric-label">grid hops</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value" id="worstVal">–</div>
+              <div class="metric-label">weakest link</div>
+            </div>
+          </div>
+
+          <div class="path-strip" id="pathStrip"></div>
+
+          <div class="route-profile" id="routeProfile"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Top 5 drivers <span class="muted">(global model)</span></h2>
+        <ol class="driver-list" id="driverList"></ol>
+      </section>
+
+      <section class="card">
+        <div class="card-head-row">
+          <h2>What‑if predictor</h2>
+          <button class="link-btn" id="toggleWhatIf">expand ▾</button>
+        </div>
+        <div id="whatIfBody" class="whatif-body hidden">
+          <p class="fine-print" id="whatIfNotice"></p>
+
+          <label class="field">
+            <span>Street segment</span>
+            <select id="segSelect"></select>
+          </label>
+
+          <div class="field-grid">
+            <label class="field"><span>Highway type</span>
+              <select id="hwSelect"></select>
+            </label>
+            <label class="field"><span>Sidewalk</span>
+              <select id="swSelect"></select>
+            </label>
+            <label class="field"><span>POIs within 400m</span>
+              <input type="number" id="poiInput" min="0" step="1">
+            </label>
+            <label class="field"><span>Dist. to transit (m)</span>
+              <input type="number" id="distInput" min="0" step="1">
+            </label>
+            <label class="field"><span>Intersection density</span>
+              <input type="number" id="idensInput" step="0.01">
+            </label>
+            <label class="field"><span>rho_phantom</span>
+              <input type="number" id="rhoInput" min="0" max="1" step="0.01">
+            </label>
+          </div>
+
+          <button class="primary-btn" id="predictBtn">Predict score</button>
+          <div id="predictResult" class="predict-result hidden"></div>
+        </div>
+      </section>
+
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script src="segments_data.js"></script>
+<script src="app_meta.js"></script>
+<script src="preprocess.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
