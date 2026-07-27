@@ -1,4 +1,4 @@
-# Manila Walkability
+# Manila Walkability Score
 
 A static single-page app over the **real** street network of the City of Manila.
 Click any street to score it, or drop two pins and compare three walking routes.
@@ -121,10 +121,22 @@ heuristic.
 | Balanced | 2 | a reasonable compromise |
 | Shortest | 0 | pure distance |
 
-The one you are looking at is painted in the walkability ramp; the other two are
-faint grey dashes you can click to switch to. Where all three come back as the
-same path — which happens often in Manila's grid — the app says so plainly
-instead of padding the list out.
+The one you are looking at is painted in the walkability ramp. The other two keep
+their own identity as **coloured broken lines**:
+
+| route | colour | dash | contrast on cream |
+|---|---|---|---|
+| Most walkable | `#1F6FB2` blue | long | 4.1:1 |
+| Balanced | `#2E7D32` green | medium | 3.4:1 |
+| Shortest | `#C08A00` golden | short | 2.59:1 |
+
+Validated all-pairs against the cream surface — worst CVD ΔE 9.6, comfortably
+clear of the floor. Gold is the one below 3:1, so every alternate also carries a
+cream casing, its own dash length and a named card, and colour never has to carry
+it alone. Click any card to swap which route gets the gradient.
+
+Where all three come back as the same path — which happens often in Manila's
+grid — the app says so plainly instead of padding the list out.
 
 ### 7. Colour, and staying out of the way
 
@@ -171,6 +183,39 @@ override that order.
 The map opens over the city core (Binondo / Intramuros / Ermita) at zoom 14.75,
 close enough that street names and hover bubbles are immediately usable.
 *Fit Manila* pulls back to the whole city.
+
+### 9. Reading the number
+
+A bare "13.7" means nothing without context, so the Route tab carries a
+**What the score means** card and the header carries the city average
+permanently:
+
+```
+city-wide average   13.7      median 11.8  (half of Manila is below this)
+across all 21,135 segments · scale runs 0-100, Manila uses 0.0-81.6
+
+  under 6.1     Poor                       bottom 20% of Manila
+  6.1-11.8      Below average for Manila   bottom half
+  11.8-20.1     Typical Manila street      middle of the pack
+  20.1-31.2     Good                       top 20%
+  31.2-46.1     Very good                  top 5%
+  46.1 and up   Exceptional                top 1%
+
+  lowest   0.0   MICT South Access Road        [show]
+  highest  81.6  unnamed pedestrian street     [show]
+```
+
+The **mean leads and the median sits beside it**, because Manila's distribution
+is skewed — a handful of excellent streets pull the mean above what a typical
+street actually scores, and showing both makes that visible instead of hiding it.
+The band edges are real percentiles recomputed from the data, not hardcoded, so
+they stay correct when you switch models. Lowest and highest are clickable: the
+map flies there and opens the street's panel.
+
+The Method tab carries the fuller breakdown, including why the practical ceiling
+is 81.6 rather than 100 — reaching 100 would need a pedestrian-only street that
+is simultaneously in Manila's densest commercial block, on top of a transit stop,
+and at its busiest junction. Nowhere is all four at once.
 
 ---
 

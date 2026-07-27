@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Manila Walkability — real streets, real scores</title>
+<title>Manila Walkability Score — real streets, real scores</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
@@ -118,7 +118,7 @@ body{background:var(--cream);color:var(--ink);font:14px/1.5 var(--sans);
 .route .nm{font-weight:650;font-size:13px;display:flex;align-items:center;gap:7px}
 .route .swatch{width:26px;flex:0 0 auto;border-radius:3px}
 .route .swatch.grad{height:6px;background:var(--w-grad)}
-.route .swatch.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--ghost) 0 5px,transparent 5px 11px)}
+.route .swatch.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--c,var(--ghost)) 0 6px,transparent 6px 12px)}
 .route .sc{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}
 .route .meta{font:10px/1.5 var(--mono);color:var(--muted);margin-top:5px}
 .route .why{font-size:11.5px;color:var(--ink2);margin-top:5px}
@@ -162,6 +162,28 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 .note.good{border-left-color:#2E7D32}
 .note.plain{border-left-color:var(--rule2)}
 .note b{color:var(--ink)}
+/* city-wide summary + the band table that explains what a number means */
+.cityfig{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.cityfig .big{font-size:34px;font-weight:700;letter-spacing:-.025em;line-height:1}
+.cityfig .alt{font:11px/1.4 var(--mono);color:var(--muted)}
+.cityrange{font:10.5px/1.5 var(--mono);color:var(--muted);margin-top:8px}
+table.bands{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:10px}
+table.bands td{padding:4px 0;border-bottom:1px solid var(--rule);vertical-align:middle}
+table.bands td.c{width:16px;padding-right:8px}
+table.bands td.c i{display:block;width:12px;height:12px;border-radius:3px}
+table.bands td.r{width:82px;font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+table.bands td.l{color:var(--ink2)}
+.extremes{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.extreme{display:flex;align-items:center;gap:9px;width:100%;text-align:left;cursor:pointer;
+  border:1px solid var(--rule);background:var(--card2);border-radius:8px;padding:7px 9px;font:inherit}
+.extreme:hover{background:var(--cream);border-color:var(--rule2)}
+.extreme .k{font:9.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:0 0 48px}
+.extreme .v{font-weight:650;font-variant-numeric:tabular-nums;flex:0 0 40px}
+.extreme .n{color:var(--ink2);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+.extreme .go{font:9.5px/1 var(--mono);color:var(--brand);flex:0 0 auto}
+.drivers{font-size:11.5px;color:var(--ink2);margin-top:12px;line-height:1.55}
+.drivers b{color:var(--ink)}
+
 .badge{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border-radius:5px;
        font:9.5px/1.6 var(--mono);border:1px solid var(--rule2);background:var(--cream)}
 .badge.inferred{border-color:var(--amber);background:#FFF6DF;color:#6B5200}
@@ -197,7 +219,7 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 .routekey div{display:flex;align-items:center;gap:7px;font:10px/1.3 var(--mono);color:var(--ink2)}
 .routekey .sw{width:26px;flex:0 0 auto;border-radius:3px}
 .routekey .sw.grad{height:6px;background:var(--w-grad)}
-.routekey .sw.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--ghost) 0 5px,transparent 5px 11px)}
+.routekey .sw.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--c,var(--ghost)) 0 6px,transparent 6px 12px)}
 
 /* street name + score follows the cursor */
 .hovertip{position:absolute;z-index:640;pointer-events:none;background:var(--ink);color:#FFFAED;
@@ -240,10 +262,11 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 
   <header class="topbar">
     <div class="brand">
-      <b>Manila <i>Walkability</i></b>
+      <b>Manila <i>Walkability Score</i></b>
       <span>OpenStreetMap &middot; H3 res-9</span>
     </div>
     <div class="stats">
+      <div class="stat"><b id="s-avg">—</b><span>city average</span></div>
       <div class="stat"><b id="s-seg">—</b><span>street segments</span></div>
       <div class="stat"><b id="s-cell">—</b><span>res-9 cells</span></div>
       <div class="stat"><b id="s-area">—</b><span>km&sup2; mapped</span></div>
@@ -293,6 +316,10 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
           <div class="tape-axis"><span>A</span><span id="tape-mid"></span><span>B</span></div>
           <table class="dec" id="route-table" style="margin-top:14px"><tbody></tbody></table>
         </div>
+
+        <div class="hr"></div>
+        <h3>What the score means</h3>
+        <div id="scorecard"></div>
       </section>
 
       <!-- --------------------------------------------------------- STREET -->
@@ -369,6 +396,10 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
         <table class="dec" id="meta-tbl"><tbody></tbody></table>
 
         <div class="hr"></div>
+        <h3>How the score is built</h3>
+        <div id="score-detail"></div>
+
+        <div class="hr"></div>
         <h3>Honest caveats</h3>
         <div id="caveats"></div>
       </section>
@@ -416,11 +447,13 @@ var M = window.MANILA, W = window.WALK_DATA, H3 = window.h3, GBM = window.MODEL_
 
 /* index 0 = least walkable (dark purple) ... index 6 = most walkable (coral) */
 var RAMP = ['#2c2358','#4d2676','#742687','#9c298b','#c03583','#dd4d77','#f26b6c'];
-var GHOST = '#9A907C';
+/* The alternatives you are not currently viewing. Validated all-pairs against
+   the cream surface: worst CVD dE 9.6. Gold sits at 2.59:1, so each one also
+   gets a cream casing and its own dash length — colour never carries it alone. */
 var ROUTE_STYLES = [
-  {key:'walk',    name:'Most walkable', alpha:8.0},
-  {key:'balance', name:'Balanced',      alpha:2.0},
-  {key:'short',   name:'Shortest',      alpha:0.0}
+  {key:'walk',    name:'Most walkable', alpha:8.0, colour:'#1F6FB2', dash:'13,7'},
+  {key:'balance', name:'Balanced',      alpha:2.0, colour:'#2E7D32', dash:'7,6'},
+  {key:'short',   name:'Shortest',      alpha:0.0, colour:'#C08A00', dash:'2.5,5'}
 ];
 var WALK_KMH = 4.8;
 var CORE = [14.5942, 120.9812];   /* Binondo / Intramuros / Ermita */
@@ -460,7 +493,8 @@ for (var gi = 0; gi < N; gi++) {
 
 /* ----------------------------------------------------- active score + rank */
 var scoreField = 'rule';
-var SCORE = new Float64Array(N), RANK = new Float64Array(N);
+var SCORE = new Float64Array(N), RANK = new Float64Array(N), SORTED = new Float64Array(N);
+var EXTREME = {lo:0, hi:0};
 
 function useModel(which) {
   scoreField = which;
@@ -469,9 +503,20 @@ function useModel(which) {
   var idx = new Array(N);
   for (i = 0; i < N; i++) idx[i] = i;
   idx.sort(function (a,b) { return SCORE[a] - SCORE[b]; });
-  for (var r = 0; r < N; r++) RANK[idx[r]] = N > 1 ? r/(N-1) : 0.5;
+  for (var r = 0; r < N; r++) { RANK[idx[r]] = N > 1 ? r/(N-1) : 0.5; SORTED[r] = SCORE[idx[r]]; }
+
+  /* The extremes, preferring a segment that actually has a name — plenty of
+     unnamed alleys tie at the bottom and "(unnamed road)" tells you nothing. */
+  var lo = idx[0], hi = idx[N-1];
+  for (i = 0; i < N && SCORE[idx[i]] === SCORE[lo]; i++)
+    if (M.names[S[idx[i]][F.NAME]]) { lo = idx[i]; break; }
+  for (i = N-1; i >= 0 && SCORE[idx[i]] === SCORE[hi]; i--)
+    if (M.names[S[idx[i]][F.NAME]]) { hi = idx[i]; break; }
+  EXTREME = {lo:lo, hi:hi};
 }
 useModel('rule');
+
+function pctile(p) { return SORTED[clamp(Math.round(p/100*(N-1)), 0, N-1)]; }
 
 var colourByRank = true;
 function ch(h,o){ return parseInt(h.substr(o,2),16); }
@@ -825,7 +870,7 @@ map.on('mousemove', (function () {
       highlight([i], hoverLayer, {color:'#14120E', weight:8, opacity:.2});
       tip.innerHTML =
         '<i class="dot" style="background:' + colourOf(i) + '"></i>' +
-        '<b>' + esc(M.names[S[i][F.NAME]] || '(unnamed road)') + '</b>' +
+        '<b>' + esc(labelFor(i)) + '</b>' +
         '<span class="sc">walkability ' + SCORE[i].toFixed(1) +
         ' · rank ' + Math.round(RANK[i]*100) + '</span>';
     }
@@ -856,7 +901,7 @@ function doSelect(latlng, whole) {
     ids = [];
     for (var k = 0; k < N; k++) if (S[k][F.NAME] === nameId) ids.push(k);
   }
-  selected = {ids:ids, seed:i, name: nm || '(unnamed road)', whole: whole && !!nm, ll:hit.ll};
+  selected = {ids:ids, seed:i, name: labelFor(i), whole: whole && !!nm, ll:hit.ll};
   highlight(ids, selLayer, {color:'#14120E', weight: whole ? 5 : 6, opacity:.9});
   renderStreet();
   loadIntoForm(i);
@@ -893,7 +938,7 @@ function drawAB() {
 function syncEnds() {
   [[A,'a'],[B,'b']].forEach(function (t) {
     var r = t[0], p = t[1];
-    $(p + '-name').textContent = r ? (M.names[S[r.i][F.NAME]] || '(unnamed road)') : 'not set';
+    $(p + '-name').textContent = r ? labelFor(r.i) : 'not set';
     $(p + '-h3').textContent = r ? H3.latLngToCell(r.ll[0], r.ll[1], 9) : '—';
     $('end-' + p).classList.toggle('set', !!r);
   });
@@ -989,7 +1034,8 @@ function renderRoutes() {
     el.style.borderLeftColor = idx === activeRoute ? 'var(--brand)' : 'var(--rule2)';
     el.innerHTML =
       '<div class="rt"><div class="nm">' +
-        '<i class="swatch ' + (idx === activeRoute ? 'grad' : 'ghost') + '"></i>' +
+        '<i class="swatch ' + (idx === activeRoute ? 'grad' : 'ghost') +
+          '" style="--c:' + r.colour + '"></i>' +
         esc(r.name) + '</div>' +
       '<div class="sc" style="color:' + colourForScore(r.mean) + '">' + r.mean.toFixed(1) + '</div></div>' +
       '<div class="meta">' + fmtM(r.len) + ' &middot; ' + Math.round(r.mins) + ' min &middot; ' +
@@ -1001,20 +1047,28 @@ function renderRoutes() {
     });
     host.appendChild(el);
   });
+  renderRouteKey();
+}
+
+function renderRouteKey() {
   $('routekey').hidden = false;
   $('routekey').innerHTML =
-    '<div><i class="sw grad"></i>selected route, by walkability</div>' +
-    '<div><i class="sw ghost"></i>' + (routes.length - 1) +
-      ' other option' + (routes.length === 2 ? '' : 's') + ' — pick one at left</div>';
+    '<div><i class="sw grad"></i>' + esc(routes[activeRoute].name) + ' — by walkability</div>' +
+    routes.map(function (r, i) {
+      return i === activeRoute ? '' :
+        '<div><i class="sw ghost" style="--c:' + r.colour + '"></i>' + esc(r.name) + '</div>';
+    }).join('');
 }
 
 function drawRoute(r, active) {
   var lines = r.edges.map(function (e) { return GEOM[e]; });
   if (!active) {
-    /* the options you are not looking at: faint grey dashes, still clickable
-       through their sidebar card */
-    L.polyline(lines, {renderer:svgR, color:GHOST, weight:3, opacity:.5,
-      dashArray:'5,7', lineCap:'butt', interactive:false}).addTo(routeLayer);
+    /* the options you are not looking at: their own colour, broken line, with a
+       cream casing underneath so the gold still reads over pale basemap */
+    L.polyline(lines, {renderer:svgR, color:'#FFFAED', weight:6, opacity:.8,
+      lineCap:'round', interactive:false}).addTo(routeLayer);
+    L.polyline(lines, {renderer:svgR, color:r.colour, weight:3.5, opacity:.95,
+      dashArray:r.dash, lineCap:'butt', interactive:false}).addTo(routeLayer);
     return;
   }
   /* cream casing so the gradient reads against any basemap tone */
@@ -1044,6 +1098,7 @@ function selectRoute(idx) {
     var sw = el.querySelector('.swatch');
     if (sw) sw.className = 'swatch ' + (on ? 'grad' : 'ghost');
   });
+  renderRouteKey();
   renderProfile(routes[idx]);
 }
 
@@ -1063,7 +1118,7 @@ function renderProfile(r) {
     parts.push('<rect x="' + x.toFixed(2) + '" y="' + (top+h-bh).toFixed(2) +
       '" width="' + Math.max(0.8, w-0.4).toFixed(2) + '" height="' + bh.toFixed(2) +
       '" fill="' + colourOf(e) + '" rx="1"><title>' +
-      esc(M.names[S[e][F.NAME]] || '(unnamed road)') + ' — ' + SCORE[e].toFixed(1) +
+      esc(labelFor(e)) + ' — ' + SCORE[e].toFixed(1) +
       ' over ' + Math.round(S[e][F.LEN]) + ' m</title></rect>');
     x += w;
   });
@@ -1080,7 +1135,7 @@ function renderProfile(r) {
 
   var rows = [], cur = null;
   r.edges.forEach(function (e) {
-    var nm = M.names[S[e][F.NAME]] || '(unnamed road)';
+    var nm = labelFor(e);
     if (cur && cur.nm === nm) { cur.len += S[e][F.LEN]; cur.w += SCORE[e]*S[e][F.LEN]; }
     else { cur = {nm:nm, len:S[e][F.LEN], w:SCORE[e]*S[e][F.LEN]}; rows.push(cur); }
   });
@@ -1289,6 +1344,8 @@ function refreshColours() {
   streetLayer.redraw();
   drawHexes();
   renderLegend();
+  renderScoreCard();
+  renderScoreDetail();
   if (routes.length) selectRoute(activeRoute);
 }
 function fitManila() {
@@ -1318,6 +1375,112 @@ function renderLegend() {
       'median ' + st.median.toFixed(1) + ' — so most streets sit near the dark end.';
   }
 }
+/* ------------------------------------------- what the numbers actually mean */
+var BANDS = [
+  [0,  20,  'Poor',                     'bottom 20% of Manila'],
+  [20, 50,  'Below average for Manila',  'bottom half'],
+  [50, 80,  'Typical Manila street',     'middle of the pack'],
+  [80, 95,  'Good',                      'top 20%'],
+  [95, 99,  'Very good',                 'top 5%'],
+  [99, 100, 'Exceptional',               'top 1%']
+];
+
+/* A segment with no name still deserves a description — "(unnamed road)" tells
+   you nothing about why it scored the way it did. */
+function labelFor(i) {
+  var nm = M.names[S[i][F.NAME]];
+  if (nm) return nm;
+  return 'unnamed ' + HW[S[i][F.HW]].replace(/_/g, ' ') +
+         (HW[S[i][F.HW]] === 'footway' ? ' path' : ' street');
+}
+
+function renderScoreCard() {
+  var st = statsFor();
+  var n1 = fmtScore(SCORE[EXTREME.lo]), n2 = fmtScore(SCORE[EXTREME.hi]);
+
+  var rows = BANDS.map(function (b, i) {
+    var lo = pctile(b[0]), hi = pctile(b[1]);
+    var range = i === 0 ? 'under ' + fmtScore(hi)
+              : i === BANDS.length - 1 ? fmtScore(lo) + ' and up'
+              : fmtScore(lo) + '–' + fmtScore(hi);
+    /* chip colour comes from the band's own position in the ranking, so the six
+       swatches step evenly instead of bunching at the top */
+    var chip = colourByRank ? ramp01((b[0] + b[1])/200) : colourForScore((lo + hi)/2);
+    return '<tr><td class="c"><i style="background:' + chip + '"></i></td>' +
+           '<td class="r">' + range + '</td><td class="l">' + b[2] +
+           ' <span style="color:var(--muted)">· ' + b[3] + '</span></td></tr>';
+  }).join('');
+
+  $('scorecard').innerHTML =
+    '<div class="card">' +
+      '<div class="metric"><div class="lbl">City-wide average</div>' +
+        '<div class="cityfig"><div class="big" style="color:' + colourForScore(st.mean) + '">' +
+          fmtScore(st.mean) + '</div>' +
+        '<div class="alt">median ' + fmtScore(st.median) + '<br>half of Manila scores below this</div></div>' +
+        '<div class="cityrange">across all ' + N.toLocaleString() + ' street segments &middot; ' +
+          'scale runs 0–100, Manila uses ' + fmtScore(st.min) + '–' + fmtScore(st.max) + '</div>' +
+      '</div>' +
+      '<table class="bands"><tbody>' + rows + '</tbody></table>' +
+      '<div class="extremes">' +
+        extremeBtn('lowest', EXTREME.lo) +
+        extremeBtn('highest', EXTREME.hi) +
+      '</div>' +
+      '<div class="drivers">Driven by <b>shops and services within 400 m</b> (40%), ' +
+        '<b>distance to the nearest transit stop</b> (30%) and <b>junction density</b> (30%) — ' +
+        'the three then multiplied by a factor for road type and whether it has a sidewalk. ' +
+        'A wide road with no pavement is cut to a tenth; a pedestrian street keeps everything.</div>' +
+    '</div>';
+
+  [['ex-lo', EXTREME.lo], ['ex-hi', EXTREME.hi]].forEach(function (p) {
+    var el = $(p[0]);
+    if (el) el.onclick = function () { focusStreet(p[1]); };
+  });
+  $('s-avg').textContent = fmtScore(st.mean);
+
+  function extremeBtn(label, i) {
+    return '<button class="extreme" id="ex-' + (label === 'lowest' ? 'lo' : 'hi') + '">' +
+      '<span class="k">' + label + '</span>' +
+      '<span class="v" style="color:' + colourForScore(SCORE[i]) + '">' + fmtScore(SCORE[i]) + '</span>' +
+      '<span class="n">' + esc(labelFor(i)) + '</span>' +
+      '<span class="go">show &rsaquo;</span></button>';
+  }
+}
+function fmtScore(v){ return (Math.round(v*10)/10).toFixed(1); }
+
+/* jump to a segment and open its panel — used by the lowest/highest buttons */
+function focusStreet(i) {
+  var pts = GEOM[i], mid = pts[Math.floor(pts.length/2)];
+  selected = {ids:[i], seed:i, name: labelFor(i), whole:false, ll:mid};
+  highlight([i], selLayer, {color:'#14120E', weight:6, opacity:.9});
+  renderStreet();
+  loadIntoForm(i);
+  goTab('street');
+  map.flyToBounds(L.latLngBounds(pts).pad(1.2), {maxZoom:17, duration:0.8});
+}
+
+function renderScoreDetail() {
+  var st = statsFor();
+  $('score-detail').innerHTML =
+    '<div class="note plain">The score answers one question: <b>how much is within ' +
+      'comfortable walking reach, and how pleasant is the walk itself?</b> It is a rubric ' +
+      'from 0 to 100, not a measured quantity.</div>' +
+    '<table class="dec"><tbody>' +
+      '<tr><td>destinations within 400 m</td><td>40% of the base</td></tr>' +
+      '<tr><td>closeness to transit</td><td>30% of the base</td></tr>' +
+      '<tr><td>junction density</td><td>30% of the base</td></tr>' +
+      '<tr><td>road type &amp; sidewalk</td><td>&times; 0.1 to &times; 1.0</td></tr>' +
+      '<tr><td>city-wide mean</td><td><b>' + fmtScore(st.mean) + '</b></td></tr>' +
+      '<tr><td>city-wide median</td><td>' + fmtScore(st.median) + '</td></tr>' +
+      '<tr><td>lowest / highest</td><td>' + fmtScore(st.min) + ' / ' + fmtScore(st.max) + '</td></tr>' +
+      '<tr><td>25th / 75th percentile</td><td>' + fmtScore(pctile(25)) + ' / ' + fmtScore(pctile(75)) + '</td></tr>' +
+    '</tbody></table>' +
+    '<div class="note"><b>Why the ceiling is ' + fmtScore(st.max) + ' and not 100.</b> ' +
+      'Reaching 100 would need a pedestrian-only street that is simultaneously in the densest ' +
+      'commercial block in Manila, on top of a transit stop, and at the busiest junction in the ' +
+      'city. Nowhere is all four at once, so the practical ceiling sits well below the ' +
+      'arithmetic one. That is why the map colours by <b>rank within Manila</b> by default.</div>';
+}
+
 function renderModelChip() {
   var chip = $('model-chip');
   chip.className = 'chip ok';
@@ -1422,6 +1585,8 @@ function renderModelChip() {
 /* -------------------------------------------------------------------- boot */
 renderModelChip();
 renderLegend();
+renderScoreCard();
+renderScoreDetail();
 map.setView(CORE, CORE_ZOOM);   /* open on the city core, names readable */
 syncEnds();
 computeRoutes();
