@@ -1,77 +1,143 @@
-# Manila Walkability Explorer
+# Manila Walkability — H3 res-9 transect explorer
 
-A static, single-page app that maps the 1,000 street segments in
-`Manila_City_True_Walkability_ML_Ready_v2.csv` on an interactive H3 res‑9
-grid. Click any two hex cells to get the average walkability score and
-distance of the walking route between them.
+A static single-page app. No backend, no build step, no framework.
+
+```
+index.html     the whole app — markup, CSS, logic
+data.js        1,000 street segments + encoders + scaler params (generated)
+model.js       score(input) → Number   ← replace with your export
+README.md      this file
+```
 
 ## Run it locally
 
-No build step, no backend. From this folder:
+**Option A — just open it.** Double-click `index.html`. Browsers allow
+`<script src="...">` from `file://` in the same folder, so `data.js` and
+`model.js` both load. Nothing here uses `fetch()`, which is what usually
+breaks local pages.
+
+**Option B — a local server** (recommended; avoids any `file://` edge cases):
 
 ```bash
+cd manila-walkability
 python3 -m http.server 8000
+# → http://localhost:8000
 ```
 
-Then open **http://localhost:8000** in a browser. (A plain `file://` open
-mostly works too, but some browsers block `fetch`/module-adjacent behavior
-on `file://`, so the local server is the safe route.)
+or `npx serve .` if you prefer Node.
 
-## Files
+An internet connection is needed on first load for Leaflet, h3-js, the
+basemap tiles, and the webfonts. Your data and model stay local.
 
-| File | Purpose |
-|---|---|
-| `index.html` | Page shell / layout |
-| `style.css` | "Manila folder" civic-map visual design |
-| `segments_data.js` | The 1,000 CSV rows, pre-parsed into JS |
-| `app_meta.js` | Your `app_intelligence.json`, embedded as JS |
-| `preprocess.js` | One-hot encoding + robust scaling → 2,513-wide feature vector |
-| `model.js` | **Placeholder** `score(input)` — see below |
-| `app.js` | Map rendering, routing graph, all UI wiring |
+## Plugging in your real model
 
-## Two things I had to work around
+`model.js` was not in the upload, so the file shipped here is a placeholder.
+Replace it with your export. The only contract:
 
-**1. `model.js` wasn't actually attached to the conversation.**
-Only `app_intelligence.json` and the CSV came through — no file with a
-`score(input)` function. I built a placeholder `model.js` with a clearly
-labeled fallback formula so the app runs end-to-end today. To go live:
-replace the body of `score()` in `model.js` with your real exported
-function. It must accept the 2,513-length array built by
-`preprocess.js`'s `buildFeatureVector()` (already in your training
-feature order) and return one number.
+```js
+window.score = function (input) { /* … */ return number; };
+```
 
-**2. The CSV has no lat/lng or street polylines — only an H3 res‑9 index.**
-So the map plots each segment's H3 hex boundary/centroid (via `h3-js`),
-not a literal traced street shape. It's genuinely tied to your real data,
-just at hex-grid resolution rather than vector-street resolution.
+`input` is a `Float64Array` of length **2513**, ordered exactly as
+`expected_feature_order` in `app_intelligence.json`:
 
-Also, a small correction on the tooling: **OSMnx is a Python library and
-can't run in a browser**, so it isn't part of this static app. In its
-place, `app.js` builds a k-nearest-neighbor graph (k=6) over the H3
-centroids and runs Dijkstra's algorithm on it for routing — this is what
-powers the "click point A, click point B" average score + distance.
+| block | columns | index range |
+|---|---|---|
+| numeric (robust-scaled) | 12 | 0 – 11 |
+| `osmid` one-hot | 999 | 12 – 1010 |
+| `name` one-hot | 493 | 1011 – 1503 |
+| `h3_res9` one-hot | 999 | 1504 – 2502 |
+| `highway` one-hot | 7 | 2503 – 2509 |
+| `sidewalk` one-hot | 3 | 2510 – 2512 |
 
-**3. Robust-scaler statistics weren't in `app_intelligence.json`.**
-The metadata says `"scaler_used": "robust"` but doesn't ship the
-training-set median/IQR. `preprocess.js` computes median/IQR from the
-1,000-row sample instead, as a documented stand-in — swap in your real
-values (`ROBUST_STATS` in `preprocess.js`) once you have them.
+One-hot blocks use `drop_first=True`, so a row whose category is the dropped
+level (`osmid_[10131289, 10874204]`'s predecessor, `highway_footway`,
+`sidewalk_both`) contributes an all-zero block. That is correct, not a bug —
+rows legitimately carry between 2 and 5 set bits.
 
-## What's fully real vs. approximated
+Set `window.MODEL_INFO = { kind: 'gbm' }` in your file and the status chip in
+the header turns green.
 
-- **Real, from your data:** every segment's name, road type, sidewalk
-  status, POI count, transit distance, intersection density, and its
-  actual `true_walkability_score_v2` from the trained model.
-- **Approximated:** the walking route between two clicked points (k-NN
-  graph over hex centroids rather than true street topology), and the
-  what-if predictor (placeholder model + estimated scaler stats).
+### Scaled or raw?
 
-## What-if predictor panel
+`app_intelligence.json` names `robust` as the scaler but doesn't ship the
+fitted medians and IQRs, so `data.js` recomputes them from the CSV. Whether
+your export expects pre-scaled input depends on how you serialised it — the
+**"feed robust-scaled vector to score()"** checkbox in the Predict tab flips
+between the two. If predictions look wildly off, flip it.
 
-Since the one-hot-encoded `osmid`/`name`/`h3_res9` columns are really a
-memorized identity for ~1,000 specific segments (not a generalizable
-"describe any street" input), the predictor panel lets you pick an
-**existing** segment and then tweak its numeric context (POI count,
-transit distance, intersection density, road type, sidewalk, rho_phantom)
-to see how the score would shift — a "what if we added a sidewalk here"
-style tool, wired through your real encoding pipeline.
+## What the app does
+
+**Route tab.** Click the map to drop A, click again for B. Clicks snap to the
+nearest surveyed street. The route follows `h3.gridPathCells` across the res-9
+grid; the app reports the mean walkability along it, path distance, straight-line
+distance, and cell count. The *walk profile* strip underneath shows every cell
+in the transect as a hexagon coloured by its score — faded, dashed hexagons are
+inverse-distance estimates for cells with no surveyed segment, so you can see
+at a glance how much of a route is measured versus interpolated.
+
+**Predict tab.** All 17 original features. The five categorical columns are
+dropdowns; their `*_encoded` partners fill in automatically, as do `P_norm`,
+`T_norm`, `I_norm` and `rho_phantom` (untick **auto** to override any of them).
+Clicking a hexagon on the map loads that segment into the form.
+
+**Method tab.** Pipeline metadata and the caveats below.
+
+## Two things worth knowing about the data
+
+**1. The target is a closed-form rule.** Regressing the target on the
+normalised components recovers, across all 1,000 rows:
+
+```
+true_walkability_score_v2 = rho_phantom × (40·P_norm + 30·T_norm + 30·I_norm)
+```
+
+Fitted coefficients: 40.0001 / 30.0000 / 29.9992, intercept −0.0003,
+**R² = 0.99999996**, max absolute error 0.005 — pure 2-decimal rounding in the CSV.
+The inputs are deterministic too: `P_norm` and `I_norm` are min-max scalings of
+`poi_count_400m` and `intersection_density`; `T_norm` is a min-max scaling of
+`1/dist_to_transit_m`; and `rho_phantom` is a lookup on `(highway, sidewalk)` —
+footway/tertiary/unclassified 0.4, living_street/pedestrian 1.0, and
+primary/residential/secondary penalised when the sidewalk is `no`/`none`.
+
+Your saved GBM scores **0.9855**, which is *below* the three-term expression it
+was trying to learn. That gap is the model losing ground to noise, not finding
+signal. The placeholder `model.js` implements the exact rule, which is why the
+Predict tab reproduces observed scores to the cent.
+
+**2. About 2,500 of the 2,513 features are row identifiers.** `osmid` and
+`h3_res9` are unique on all 1,000 rows, and `name` is near-unique at 494 levels.
+One-hot encoding them gives the model a private column per row — it can memorise
+the training set, and every one of those columns is zero for any street it has
+not already seen. If you plan to score new streets, the honest feature set is the
+eight real columns: `highway`, `sidewalk`, `poi_count_400m`, `dist_to_transit_m`,
+`intersection_density`, and the three normalised terms. The app still builds the
+full 2,513-length vector because that's what your metadata specifies.
+
+## Known limits
+
+- **OSMnx has no browser build.** It's a Python library that wraps GeoPandas,
+  NetworkX and Shapely — none of which run client-side. The app uses **Leaflet**
+  for rendering and **h3-js** for the res-9 grid, which together cover what
+  OSMnx would have given you here. If you want true street-network routing
+  rather than grid-path routing, export the OSMnx graph to GeoJSON from Python
+  and load it as an extra layer.
+- **No coordinates in the CSV.** Every position on the map is decoded from the
+  `h3_res9` index via `h3.cellToLatLng`, so segments plot at cell centroids
+  rather than along their real geometry.
+- **The dashed outline is a convex hull** of the 1,000 surveyed centroids — the
+  surveyed extent, not Manila's legal boundary. For the administrative border,
+  define `window.MANILA_BOUNDARY` as a GeoJSON polygon before `index.html`'s
+  main script runs and swap it into `boundLayer`.
+- **Route distance is grid distance.** It sums haversine hops between res-9 cell
+  centroids, so it approximates a walk over the hex lattice and will read a
+  little longer than a straight line and a little shorter than the real
+  pavement route.
+
+## Regenerating `data.js`
+
+`build_data.py` reads the CSV and the JSON and rewrites `data.js`:
+
+```bash
+python3 build_data.py
+```
