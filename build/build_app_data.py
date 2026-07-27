@@ -207,11 +207,16 @@ for wid, t, hw, run in segments:
         continue
     P = [xy(la, lo) for la, lo in pts]
     length = sum(hav(P[i], P[i + 1]) for i in range(len(P) - 1))
-    if length < 8:
+    # Keep the stubs. A 4 m link between two roads carries no walkers on its own
+    # but it is exactly what holds the routing graph together — dropping short
+    # segments was cutting the network into islands.
+    if length < 0.5:
         continue
     recs.append({'wid': wid, 'tags': t, 'hw': hw, 'nodes': run,
                  'pts': pts, 'xy': P, 'len': length})
-print('  %d segments inside the city boundary' % len(recs))
+short = sum(1 for r in recs if r['len'] < 8)
+print('  %d segments inside the city boundary (%d of them under 8 m, kept as connectors)'
+      % (len(recs), short))
 
 # ---------------------------------------------------------------- sidewalk --
 SW_TAG = {'both': 'both', 'left': 'yes', 'right': 'yes', 'yes': 'yes',

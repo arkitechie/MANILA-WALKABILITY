@@ -451,9 +451,9 @@ var RAMP = ['#2c2358','#4d2676','#742687','#9c298b','#c03583','#dd4d77','#f26b6c
    the cream surface: worst CVD dE 9.6. Gold sits at 2.59:1, so each one also
    gets a cream casing and its own dash length — colour never carries it alone. */
 var ROUTE_STYLES = [
-  {key:'walk',    name:'Most walkable', alpha:8.0, colour:'#1F6FB2', dash:'13,7'},
-  {key:'balance', name:'Balanced',      alpha:2.0, colour:'#2E7D32', dash:'7,6'},
-  {key:'short',   name:'Shortest',      alpha:0.0, colour:'#C08A00', dash:'2.5,5'}
+  {key:'direct',  name:'Direct route',                alpha:0.0, colour:'#C08A00', dash:'2.5,5'},
+  {key:'walk',    name:'Alternative — more walkable', alpha:8.0, colour:'#1F6FB2', dash:'13,7'},
+  {key:'balance', name:'Alternative — balanced',      alpha:2.0, colour:'#2E7D32', dash:'7,6'}
 ];
 var WALK_KMH = 4.8;
 var CORE = [14.5942, 120.9812];   /* Binondo / Intramuros / Ermita */
@@ -581,7 +581,7 @@ function pointToSeg(la, lo, a, b) {
   var dx = bx-ax, dy = by-ay, L = dx*dx+dy*dy;
   var t = L === 0 ? 0 : clamp(-(ax*dx+ay*dy)/L, 0, 1);
   var px = ax+dx*t, py = ay+dy*t;
-  return {d: Math.sqrt(px*px+py*py), ll:[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]};
+  return {d: Math.sqrt(px*px+py*py), t:t, ll:[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]};
 }
 function nearestStreet(la, lo, maxM) {
   maxM = maxM || 220;
@@ -598,7 +598,7 @@ function nearestStreet(la, lo, maxM) {
       var p = GEOM[i];
       for (var j = 0; j < p.length-1; j++) {
         var r = pointToSeg(la, lo, p[j], p[j+1]);
-        if (!best || r.d < best.d) best = {d:r.d, i:i, ll:r.ll};
+        if (!best || r.d < best.d) best = {d:r.d, i:i, ll:r.ll, j:j};
       }
     }
   }
@@ -647,6 +647,7 @@ Heap.prototype.pop = function () {
   return top;
 };
 Heap.prototype.size = function () { return this.v.length; };
+Heap.prototype.top = function () { return this.p[0]; };
 
 var gDist = new Float64Array(NODE_COUNT), gPrevN = new Int32Array(NODE_COUNT),
     gPrevE = new Int32Array(NODE_COUNT), gMark = new Int32Array(NODE_COUNT),
@@ -655,48 +656,113 @@ var gDist = new Float64Array(NODE_COUNT), gPrevN = new Int32Array(NODE_COUNT),
 function nodeLat(n){ return NODES[n*2]; }
 function nodeLon(n){ return NODES[n*2+1]; }
 
-/* A* minimising  sum( length x (1 + alpha x (1 - rank)) ).
-   The multiplier bottoms out at 1, so straight-line distance stays admissible. */
-function astar(src, dst, alpha) {
+/* Where a pin sits ON its segment. Routing starts from the pin itself rather
+   than from the nearest junction — on a long street those are hundreds of
+   metres apart, and the gap made the drawn line look like it ignored the pin. */
+function tailsFor(hit) {
+  var pts = GEOM[hit.i], j = hit.j, ll = hit.ll, k, prev, len;
+  var back = [ll]; len = 0; prev = ll;
+  for (k = j; k >= 0; k--) {
+    len += metresBetween(prev[0], prev[1], pts[k][0], pts[k][1]);
+    back.push(pts[k]); prev = pts[k];
+  }
+  var backLen = len;
+  var fwd = [ll]; len = 0; prev = ll;
+  for (k = j + 1; k < pts.length; k++) {
+    len += metresBetween(prev[0], prev[1], pts[k][0], pts[k][1]);
+    fwd.push(pts[k]); prev = pts[k];
+  }
+  return [{node:S[hit.i][F.A], pts:back, len:backLen},
+          {node:S[hit.i][F.B], pts:fwd,  len:len}];
+}
+
+/* A and B landed on the same block — just walk the piece between them. */
+function sameSegment(a, b) {
+  var pts = GEOM[a.i], out = [a.ll], k;
+  if (a.j <= b.j) { for (k = a.j + 1; k <= b.j; k++) out.push(pts[k]); }
+  else            { for (k = a.j;     k >  b.j; k--) out.push(pts[k]); }
+  out.push(b.ll);
+  var len = 0;
+  for (k = 0; k < out.length - 1; k++)
+    len += metresBetween(out[k][0], out[k][1], out[k+1][0], out[k+1][1]);
+  return len < 1 ? null : [{si:a.i, pts:out, len:len}];
+}
+
+/* A* minimising  sum( length x (1 + alpha x (1 - rank)) ), seeded from BOTH
+   ends of A's segment and finishing at whichever end of B's segment is cheaper
+   once its own tail walk is added. The multiplier bottoms out at 1, so
+   straight-line distance plus the destination tail stays admissible. One search
+   per profile rather than four. */
+function routeBetween(a, b, alpha) {
+  if (a.i === b.i) return sameSegment(a, b);
+
+  var mulA = 1 + alpha*(1 - RANK[a.i]), mulB = 1 + alpha*(1 - RANK[b.i]);
+  var dCost = [b.ends[0].len*mulB, b.ends[1].len*mulB];
+  var bn = [b.ends[0].node, b.ends[1].node];
+  function hOf(v) {
+    var la = nodeLat(v), lo = nodeLon(v);
+    return Math.min(metresBetween(la, lo, nodeLat(bn[0]), nodeLon(bn[0])) + dCost[0],
+                    metresBetween(la, lo, nodeLat(bn[1]), nodeLon(bn[1])) + dCost[1]);
+  }
+
   gStamp++;
-  var h = new Heap();
-  gDist[src] = 0; gPrevN[src] = -1; gPrevE[src] = -1; gMark[src] = gStamp;
-  h.push(0, src);
-  var dLat = nodeLat(dst), dLon = nodeLon(dst), guard = 0;
+  var h = new Heap(), k, n, c;
+  for (k = 0; k < 2; k++) {
+    n = a.ends[k].node; c = a.ends[k].len*mulA;
+    if (gMark[n] !== gStamp || c < gDist[n]) {
+      gMark[n] = gStamp; gDist[n] = c; gPrevN[n] = -1; gPrevE[n] = -1;
+      h.push(c + hOf(n), n);
+    }
+  }
+
+  var best = Infinity, bestK = -1, guard = 0;
   while (h.size()) {
-    if (++guard > 2000000) return null;
+    if (++guard > 2000000) break;
+    if (h.top() >= best) break;
     var u = h.pop();
     if (gDone[u] === gStamp) continue;
     gDone[u] = gStamp;
-    if (u === dst) break;
+    for (k = 0; k < 2; k++)
+      if (u === bn[k] && gDist[u] + dCost[k] < best) { best = gDist[u] + dCost[k]; bestK = k; }
     for (var e = ADJ_HEAD[u]; e !== -1; e = ADJ_NEXT[e]) {
       var v = ADJ_TO[e], st = ADJ_ST[e];
       var nd = gDist[u] + S[st][F.LEN]*(1 + alpha*(1 - RANK[st]));
       if (gMark[v] !== gStamp || nd < gDist[v]) {
         gMark[v] = gStamp; gDist[v] = nd; gPrevN[v] = u; gPrevE[v] = st;
-        h.push(nd + metresBetween(nodeLat(v), nodeLon(v), dLat, dLon), v);
+        h.push(nd + hOf(v), v);
       }
     }
   }
-  if (gDone[dst] !== gStamp) return null;
-  var edges = [], cur = dst;
-  while (cur !== src) {
-    if (gPrevE[cur] < 0 || edges.length > 30000) return null;
+  if (bestK < 0) return null;
+
+  var edges = [], cur = bn[bestK];
+  while (gPrevE[cur] >= 0) {
     edges.push(gPrevE[cur]);
     cur = gPrevN[cur];
+    if (edges.length > 40000) return null;
   }
   edges.reverse();
-  return edges;
+  var startK = (cur === a.ends[0].node) ? 0 : 1;
+
+  var pieces = [];
+  if (a.ends[startK].len > 0.5)
+    pieces.push({si:a.i, pts:a.ends[startK].pts, len:a.ends[startK].len});
+  for (k = 0; k < edges.length; k++)
+    pieces.push({si:edges[k], pts:GEOM[edges[k]], len:S[edges[k]][F.LEN]});
+  if (b.ends[bestK].len > 0.5)
+    pieces.push({si:b.i, pts:b.ends[bestK].pts.slice().reverse(), len:b.ends[bestK].len});
+  return pieces.length ? pieces : null;
 }
 
-function summarise(edges) {
-  var len = 0, wsum = 0;
-  for (var i = 0; i < edges.length; i++) {
-    var L = S[edges[i]][F.LEN];
-    len += L; wsum += SCORE[edges[i]]*L;
+function summarise(pieces) {
+  var len = 0, wsum = 0, set = new Set();
+  for (var i = 0; i < pieces.length; i++) {
+    len += pieces[i].len;
+    wsum += SCORE[pieces[i].si]*pieces[i].len;
+    set.add(pieces[i].si);
   }
-  return {edges:edges, len:len, mean: len ? wsum/len : 0,
-          mins: len/1000/WALK_KMH*60, set:new Set(edges)};
+  return {pieces:pieces, len:len, mean: len ? wsum/len : 0,
+          mins: len/1000/WALK_KMH*60, set:set};
 }
 
 /* ---------------------------------------------------------------------- map */
@@ -901,28 +967,23 @@ function doSelect(latlng, whole) {
     ids = [];
     for (var k = 0; k < N; k++) if (S[k][F.NAME] === nameId) ids.push(k);
   }
-  selected = {ids:ids, seed:i, name: labelFor(i), whole: whole && !!nm, ll:hit.ll};
+  selected = {ids:ids, seed:i, name: labelFor(i), whole: whole && !!nm, ll:hit.ll, j:hit.j};
   highlight(ids, selLayer, {color:'#14120E', weight: whole ? 5 : 6, opacity:.9});
   renderStreet();
   loadIntoForm(i);
 
   /* A click anywhere places a pin — you never have to hit the line itself.
      A, then B, then a fresh pair. */
-  if (arm === 'A') setEnd('A', i, hit.ll);
-  else if (arm === 'B') setEnd('B', i, hit.ll);
-  else if (!A) setEnd('A', i, hit.ll);
-  else if (!B) setEnd('B', i, hit.ll);
-  else { B = null; setEnd('A', i, hit.ll); }
+  if (arm === 'A') setEnd('A', hit);
+  else if (arm === 'B') setEnd('B', hit);
+  else if (!A) setEnd('A', hit);
+  else if (!B) setEnd('B', hit);
+  else { B = null; setEnd('A', hit); }
   arm = null; syncArm();
 }
 
-function endpointNodeFor(i, ll) {
-  var a = S[i][F.A], b = S[i][F.B];
-  return metresBetween(ll[0], ll[1], nodeLat(a), nodeLon(a)) <=
-         metresBetween(ll[0], ll[1], nodeLat(b), nodeLon(b)) ? a : b;
-}
-function setEnd(which, i, ll) {
-  var rec = {i:i, ll:ll, node:endpointNodeFor(i, ll)};
+function setEnd(which, hit) {
+  var rec = {i:hit.i, ll:hit.ll, j:hit.j, ends:tailsFor(hit)};
   if (which === 'A') A = rec; else B = rec;
   syncEnds(); drawAB(); computeRoutes();
 }
@@ -971,9 +1032,9 @@ function computeRoutes() {
     status.innerHTML = A ? 'Now click the map to set <b>B</b>.' : 'Click the map to set <b>A</b>.';
     return;
   }
-  if (A.node === B.node) {
+  if (metresBetween(A.ll[0], A.ll[1], B.ll[0], B.ll[1]) < 5) {
     status.hidden = false; status.className = 'note bad';
-    status.innerHTML = 'A and B snapped to the same junction — pick points further apart.';
+    status.innerHTML = 'A and B are on practically the same spot — pick points further apart.';
     return;
   }
   status.hidden = false; status.className = 'note plain';
@@ -982,8 +1043,8 @@ function computeRoutes() {
   setTimeout(function () {
     var found = [];
     ROUTE_STYLES.forEach(function (st) {
-      var edges = astar(A.node, B.node, st.alpha);
-      if (edges && edges.length) found.push(Object.assign({}, st, summarise(edges)));
+      var pieces = routeBetween(A, B, st.alpha);
+      if (pieces && pieces.length) found.push(Object.assign({}, st, summarise(pieces)));
     });
     if (!found.length) {
       status.className = 'note bad';
@@ -1005,7 +1066,7 @@ function computeRoutes() {
     renderRoutes();
     selectRoute(0);
     var all = [];
-    routes[0].edges.forEach(function (e) { all = all.concat(GEOM[e]); });
+    routes[0].pieces.forEach(function (p) { all = all.concat(p.pts); });
     if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.2));
   }, 20);
 }
@@ -1013,24 +1074,28 @@ function computeRoutes() {
 function renderRoutes() {
   var host = $('routes');
   host.innerHTML = '';
-  var shortest = routes.reduce(function (m, r) { return Math.min(m, r.len); }, Infinity);
-  var worst = routes.reduce(function (m, r) { return Math.min(m, r.mean); }, Infinity);
   routes.forEach(function (r, idx) {
     var el = document.createElement('div');
     el.className = 'route' + (r.dup ? ' dup' : '');
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-pressed', idx === activeRoute);
-    var extra = r.len - shortest, gain = r.mean - worst;
+    /* Everything is described against the direct route — that is the one you
+       are being offered, so the alternatives have to justify their extra metres. */
+    var base = routes[0];
+    var extra = r.len - base.len, gain = r.mean - base.mean;
     var allSame = routes.length > 1 && routes.slice(1).every(function (o) { return o.dup; });
-    var why = r.dup
-      ? 'Identical to <b>' + esc(r.dupOf) + '</b> — no better option exists here.'
-      : (allSame
-          ? 'The only sensible way there — all three options came back as the same route.'
-          : extra < 1
-            ? 'The shortest way there.'
-            : '+' + fmtM(extra) + ' (' + Math.round(100*extra/shortest) + '% longer)' +
-              (gain > 0.05 ? ' for +' + gain.toFixed(1) + ' walkability.' : '.'));
+    var why = idx === 0
+      ? (allSame ? 'The nearest way there — and no alternative improves on it.'
+                 : 'The nearest way there.')
+      : r.dup
+        ? 'Same as the direct route — nothing better exists here.'
+        : extra < 1
+          ? 'No further than the direct route, and ' +
+            (gain > 0.05 ? '+' + gain.toFixed(1) + ' more walkable.' : 'much the same.')
+          : '+' + fmtM(extra) + ' (' + Math.round(100*extra/base.len) + '% longer)' +
+            (gain > 0.05 ? ' for +' + gain.toFixed(1) + ' walkability.'
+                         : ' for no real gain — skip it.');
     el.style.borderLeftColor = idx === activeRoute ? 'var(--brand)' : 'var(--rule2)';
     el.innerHTML =
       '<div class="rt"><div class="nm">' +
@@ -1039,7 +1104,7 @@ function renderRoutes() {
         esc(r.name) + '</div>' +
       '<div class="sc" style="color:' + colourForScore(r.mean) + '">' + r.mean.toFixed(1) + '</div></div>' +
       '<div class="meta">' + fmtM(r.len) + ' &middot; ' + Math.round(r.mins) + ' min &middot; ' +
-        r.edges.length + ' segments</div>' +
+        r.pieces.length + ' segments</div>' +
       '<div class="why">' + why + '</div>';
     el.addEventListener('click', function () { selectRoute(idx); });
     el.addEventListener('keydown', function (e) {
@@ -1061,7 +1126,7 @@ function renderRouteKey() {
 }
 
 function drawRoute(r, active) {
-  var lines = r.edges.map(function (e) { return GEOM[e]; });
+  var lines = r.pieces.map(function (p) { return p.pts; });
   if (!active) {
     /* the options you are not looking at: their own colour, broken line, with a
        cream casing underneath so the gold still reads over pale basemap */
@@ -1074,9 +1139,9 @@ function drawRoute(r, active) {
   /* cream casing so the gradient reads against any basemap tone */
   L.polyline(lines, {renderer:svgR, color:'#FFFAED', weight:10, opacity:.95,
     lineCap:'round', lineJoin:'round', interactive:false}).addTo(routeLayer);
-  /* then one stroke per segment, each in its own walkability colour */
-  r.edges.forEach(function (e) {
-    L.polyline(GEOM[e], {renderer:svgR, color:colourOf(e), weight:6, opacity:1,
+  /* then one stroke per piece, each in its own walkability colour */
+  r.pieces.forEach(function (p) {
+    L.polyline(p.pts, {renderer:svgR, color:colourOf(p.si), weight:6, opacity:1,
       lineCap:'round', lineJoin:'round', interactive:false}).addTo(routeLayer);
   });
 }
@@ -1105,21 +1170,21 @@ function selectRoute(idx) {
 function renderProfile(r) {
   $('profile-wrap').hidden = false;
   var svg = $('tape'), host = svg.parentNode;
-  var W_ = Math.max((host.clientWidth || 340) - 2, r.edges.length*3);
+  var W_ = Math.max((host.clientWidth || 340) - 2, r.pieces.length*3);
   var H_ = 80, top = 12, h = 48;
   svg.setAttribute('width', W_);
   svg.setAttribute('height', H_);
   svg.setAttribute('viewBox', '0 0 ' + W_ + ' ' + H_);
   var st = statsFor(), span = Math.max(1e-9, st.max - st.min);
   var parts = [], x = 0;
-  r.edges.forEach(function (e) {
-    var w = Math.max(1.2, (S[e][F.LEN]/r.len)*W_);
-    var bh = Math.max(3, clamp((SCORE[e]-st.min)/span, 0, 1)*h);
+  r.pieces.forEach(function (p) {
+    var w = Math.max(1.2, (p.len/r.len)*W_);
+    var bh = Math.max(3, clamp((SCORE[p.si]-st.min)/span, 0, 1)*h);
     parts.push('<rect x="' + x.toFixed(2) + '" y="' + (top+h-bh).toFixed(2) +
       '" width="' + Math.max(0.8, w-0.4).toFixed(2) + '" height="' + bh.toFixed(2) +
-      '" fill="' + colourOf(e) + '" rx="1"><title>' +
-      esc(labelFor(e)) + ' — ' + SCORE[e].toFixed(1) +
-      ' over ' + Math.round(S[e][F.LEN]) + ' m</title></rect>');
+      '" fill="' + colourOf(p.si) + '" rx="1"><title>' +
+      esc(labelFor(p.si)) + ' — ' + SCORE[p.si].toFixed(1) +
+      ' over ' + Math.round(p.len) + ' m</title></rect>');
     x += w;
   });
   parts.push('<line x1="0" y1="' + (top+h) + '" x2="' + W_ + '" y2="' + (top+h) +
@@ -1134,10 +1199,10 @@ function renderProfile(r) {
   $('tape-mid').textContent = fmtM(r.len) + ' total';
 
   var rows = [], cur = null;
-  r.edges.forEach(function (e) {
-    var nm = labelFor(e);
-    if (cur && cur.nm === nm) { cur.len += S[e][F.LEN]; cur.w += SCORE[e]*S[e][F.LEN]; }
-    else { cur = {nm:nm, len:S[e][F.LEN], w:SCORE[e]*S[e][F.LEN]}; rows.push(cur); }
+  r.pieces.forEach(function (p) {
+    var nm = labelFor(p.si);
+    if (cur && cur.nm === nm) { cur.len += p.len; cur.w += SCORE[p.si]*p.len; }
+    else { cur = {nm:nm, len:p.len, w:SCORE[p.si]*p.len}; rows.push(cur); }
   });
   $('route-table').querySelector('tbody').innerHTML = rows.map(function (o) {
     var v = o.w/o.len;
@@ -1196,8 +1261,9 @@ function renderStreet() {
       '<button class="btn" id="use-b">Use as B</button>' +
       '<button class="btn" id="zoom-sel">Zoom to it</button></div>';
 
-  $('use-a').onclick = function () { setEnd('A', seed, selected.ll); goTab('route'); };
-  $('use-b').onclick = function () { setEnd('B', seed, selected.ll); goTab('route'); };
+  var asHit = {i:seed, ll:selected.ll, j:selected.j != null ? selected.j : 0};
+  $('use-a').onclick = function () { setEnd('A', asHit); goTab('route'); };
+  $('use-b').onclick = function () { setEnd('B', asHit); goTab('route'); };
   $('zoom-sel').onclick = function () {
     var all = [];
     ids.forEach(function (i) { all = all.concat(GEOM[i]); });
@@ -1449,8 +1515,9 @@ function fmtScore(v){ return (Math.round(v*10)/10).toFixed(1); }
 
 /* jump to a segment and open its panel — used by the lowest/highest buttons */
 function focusStreet(i) {
-  var pts = GEOM[i], mid = pts[Math.floor(pts.length/2)];
-  selected = {ids:[i], seed:i, name: labelFor(i), whole:false, ll:mid};
+  var pts = GEOM[i], m = Math.floor(pts.length/2);
+  selected = {ids:[i], seed:i, name: labelFor(i), whole:false, ll:pts[m],
+              j: clamp(m, 0, pts.length - 2)};
   highlight([i], selLayer, {color:'#14120E', weight:6, opacity:.9});
   renderStreet();
   loadIntoForm(i);

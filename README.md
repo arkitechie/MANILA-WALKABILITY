@@ -6,7 +6,7 @@ No backend, no build step at runtime, no framework.
 
 ```
 index.html      the whole app — markup, CSS, logic
-manila.js       21,135 real Manila street segments + features + scores  (1.9 MB, generated)
+manila.js       24,442 real Manila street segments + features + scores  (2.2 MB, generated)
 model.js        the analytic scorer            window.score(input) -> Number
 model_gbm.js    winning_model.pkl ported to JS window.MODEL_GBM     (generated)
 data.js         the original 1,000-row CSV export + encoders (kept for reference)
@@ -56,7 +56,7 @@ measures each one:
 | `highway` | OSM class, mapped onto the model's eight-level vocabulary |
 | `sidewalk` | OSM tag where present; else a separately-mapped parallel sidewalk way within 22 m; else inferred from road class **and flagged** |
 
-Result: **21,135 segments**, **17,362 junctions**, **42.55 km²**. Single click
+Result: **24,442 segments**, **18,293 junctions**, **42.55 km²**. Single click
 scores the block you hit; double-click scores the whole named street,
 length-weighted. Snapping runs off a ~245 m grid index, so it is instant.
 
@@ -64,7 +64,7 @@ length-weighted. Snapping runs off a ~245 m grid index, so it is instant.
 
 H3 res-9 cells are now computed from real segment positions with
 `h3.latlng_to_cell`, and the build asserts every one of them validates. **449
-cells** hold real streets, ~47 segments each.
+cells** hold real streets, ~54 segments each.
 
 ### 4. Both boundaries
 
@@ -103,7 +103,7 @@ The identifier `*_encoded` columns are fed the training median so that, after th
 RobustScaler, they contribute exactly zero — the honest way to ask a memorising
 model about new data. Switch models in the **Method** tab.
 
-### 6. Three route alternatives
+### 6. One direct route, two alternatives
 
 A* over the real pedestrian graph, minimising
 
@@ -113,27 +113,34 @@ sum( length x (1 + alpha x (1 - rank)) )
 
 where `rank` is the segment's walkability percentile within Manila. The
 multiplier bottoms out at 1, so straight-line distance stays an admissible
-heuristic.
+heuristic — verified against a plain Dijkstra on 40 random pairs, **identical to
+0.000000 m**.
 
-| route | alpha | reads as |
-|---|---|---|
-| Most walkable | 8 | willing to detour a long way for better streets |
-| Balanced | 2 | a reasonable compromise |
-| Shortest | 0 | pure distance |
+| route | alpha | colour | dash | shown as |
+|---|---|---|---|---|
+| **Direct route** | 0 | `#C08A00` golden | short | the default — genuinely the nearest way |
+| Alternative — more walkable | 8 | `#1F6FB2` blue | long | detours for better streets |
+| Alternative — balanced | 2 | `#2E7D32` green | medium | a mild compromise |
 
-The one you are looking at is painted in the walkability ramp. The other two keep
-their own identity as **coloured broken lines**:
+**The direct route is what you get by default**, painted in the walkability ramp.
+Earlier the *most walkable* route led, and because it detours a median 1.10× and
+up to 1.81× further, routes routinely looked like the app had ignored the obvious
+way there. The two alternatives now have to justify their extra metres, and the
+cards say so explicitly: *"+209 m (7% longer) for +11.3 walkability."* When an
+alternative buys nothing it says *"for no real gain — skip it."*
 
-| route | colour | dash | contrast on cream |
-|---|---|---|---|
-| Most walkable | `#1F6FB2` blue | long | 4.1:1 |
-| Balanced | `#2E7D32` green | medium | 3.4:1 |
-| Shortest | `#C08A00` golden | short | 2.59:1 |
+The alternatives keep their identity as **coloured broken lines**. Validated
+all-pairs against the cream surface — worst CVD ΔE 9.6, comfortably clear of the
+floor. Gold is the one below 3:1, so every alternate also carries a cream casing,
+its own dash length and a named card; colour never has to carry it alone.
 
-Validated all-pairs against the cream surface — worst CVD ΔE 9.6, comfortably
-clear of the floor. Gold is the one below 3:1, so every alternate also carries a
-cream casing, its own dash length and a named card, and colour never has to carry
-it alone. Click any card to swap which route gets the gradient.
+**Routes start and finish at your pins, not at the nearest junction.** The search
+is seeded from *both* ends of the segment you clicked and finishes at whichever
+end of the destination segment is cheaper once its own tail walk is counted — one
+search per profile, not four. Before this, the line began at a junction that on a
+long street could be **hundreds of metres** from the marker (the longest segment
+in Manila is 1,221 m), which looked exactly like a routing error. The tail walk
+is included in the reported distance and in the walk profile.
 
 Where all three come back as the same path — which happens often in Manila's
 grid — the app says so plainly instead of padding the list out.
@@ -164,8 +171,8 @@ clean and monochrome. The colour appears where it earns its place:
   its ramp colour.
 - **Draw a route** → the selected route is painted *segment by segment* in the
   ramp, so you can see which stretches are pleasant and which are grim. The two
-  alternatives sit underneath as faint grey dashes; click a card to swap.
-- **Walkability button** → paints the ramp across all 21,135 streets. While a
+  alternatives sit underneath as coloured broken lines; click a card to swap.
+- **Walkability button** → paints the ramp across all 24,442 streets. While a
   route is on screen the overlay dims to 32% so the two never fight.
 
 Real Manila scores bunch low (median 11.8 of 100), so the map colours by **rank
@@ -191,18 +198,18 @@ A bare "13.7" means nothing without context, so the Route tab carries a
 permanently:
 
 ```
-city-wide average   13.7      median 11.8  (half of Manila is below this)
-across all 21,135 segments · scale runs 0-100, Manila uses 0.0-81.6
+city-wide average   13.6      median 11.8  (half of Manila is below this)
+across all 24,442 segments · scale runs 0-100, Manila uses 0.0-79.7
 
   under 6.1     Poor                       bottom 20% of Manila
   6.1-11.8      Below average for Manila   bottom half
-  11.8-20.1     Typical Manila street      middle of the pack
-  20.1-31.2     Good                       top 20%
-  31.2-46.1     Very good                  top 5%
-  46.1 and up   Exceptional                top 1%
+  11.8-19.9     Typical Manila street      middle of the pack
+  19.9-30.8     Good                       top 20%
+  30.8-44.9     Very good                  top 5%
+  44.9 and up   Exceptional                top 1%
 
   lowest   0.0   MICT South Access Road        [show]
-  highest  81.6  unnamed pedestrian street     [show]
+  highest  79.7  unnamed pedestrian street     [show]
 ```
 
 The **mean leads and the median sits beside it**, because Manila's distribution
@@ -213,7 +220,7 @@ they stay correct when you switch models. Lowest and highest are clickable: the
 map flies there and opens the street's panel.
 
 The Method tab carries the fuller breakdown, including why the practical ceiling
-is 81.6 rather than 100 — reaching 100 would need a pedestrian-only street that
+is 79.7 rather than 100 — reaching 100 would need a pedestrian-only street that
 is simultaneously in Manila's densest commercial block, on top of a transit stop,
 and at its busiest junction. Nowhere is all four at once.
 
@@ -242,15 +249,19 @@ segment standing on top of a jeepney stop drive `1/dist` to 1.0 and flatten
 
 ## Known limits
 
-- **46% of sidewalk values are inferred.** OSM carries no sidewalk tag on 9,700
-  of the 21,135 segments, so road class stood in — arterials assumed to have one,
+- **45% of sidewalk values are inferred.** OSM carries no sidewalk tag on 10,892
+  of the 24,442 segments, so road class stood in — arterials assumed to have one,
   residential assumed not. Those segments are flagged in the Street panel.
   Sidewalk presence multiplies the score through `rho_phantom`, so this is the
   largest single source of uncertainty on the map.
 - **Scores are a rubric, not a survey.** Nothing here measures flooding, shade,
   crime, pavement condition or air quality.
 - **Routing respects OSM's topology, including its gaps.** If two points are not
-  connected in OSM, the app says so rather than inventing a path.
+  connected in OSM, the app says so rather than inventing a path. The graph is
+  now **99 components with 97.5% of nodes in the largest** — it was 572 components
+  and 82% until the build stopped discarding segments under 8 m. Those stubs
+  carry nobody on their own but they are exactly what holds a street network
+  together, and dropping them was cutting Manila into islands.
 - **Light theme only** — a deliberate choice to match the `OS.png` look.
 - The original 1,000 rows survive as the off-by-default *Original survey* layer,
   laid out on a reference grid and labelled as unplaced. Those dots are not real
