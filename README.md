@@ -121,25 +121,56 @@ heuristic.
 | Balanced | 2 | a reasonable compromise |
 | Shortest | 0 | pure distance |
 
-Each is drawn in its own colour **and** dash pattern **and** carries a direct
-label. Routes that come out identical are marked as such rather than padded out.
+The one you are looking at is painted in the walkability ramp; the other two are
+faint grey dashes you can click to switch to. Where all three come back as the
+same path — which happens often in Manila's grid — the app says so plainly
+instead of padding the list out.
 
-### 7. Colour
+### 7. Colour, and staying out of the way
 
 Palette sampled from `OS.png`: cream `#F5EBDE`, black, indigo `#50488E`, sage
 `#B1D198`, coral `#F26B6C`, amber `#FFC234`. The basemap is greyscaled; colour is
 reserved for data.
 
-- **Walkability** — a 7-step single-hue indigo ramp, `#A399C9` → `#2C2358`,
-  monotone in lightness, light end 2.24:1 against cream.
-- **Routes** — `#2E7D32` / `#B8860B` / `#F26B6C`, validated all-pairs. Worst CVD
-  ΔE is 7.2, inside the 6–8 band, which is why every route also gets a dash
-  pattern and a label.
+**The walkability ramp runs dark purple → coral**, least walkable to most:
+
+```
+#2c2358  #4d2676  #742687  #9c298b  #c03583  #dd4d77  #f26b6c
+```
+
+Generated in OKLCH so lightness climbs evenly — ΔL 0.065–0.067 at every step,
+light end 2.51:1 against cream, hue spread 16°. It travels two hues rather than
+the usual one, which is safe **only** because lightness is strictly monotonic:
+the ramp survives greyscale, print and every colour-blindness simulation on
+lightness alone, with hue as a bonus channel rather than the carrier.
+
+**The overlay is off by default.** Coloured lines drawn over every street sit on
+top of the basemap's street labels and make them unreadable, so the map opens
+clean and monochrome. The colour appears where it earns its place:
+
+- **Hover** any street → a bubble with its name, score and rank, and a chip in
+  its ramp colour.
+- **Draw a route** → the selected route is painted *segment by segment* in the
+  ramp, so you can see which stretches are pleasant and which are grim. The two
+  alternatives sit underneath as faint grey dashes; click a card to swap.
+- **Walkability button** → paints the ramp across all 21,135 streets. While a
+  route is on screen the overlay dims to 32% so the two never fight.
 
 Real Manila scores bunch low (median 11.8 of 100), so the map colours by **rank
 within Manila** by default — each shade then holds a similar number of streets.
 The *Colour* button switches to the absolute scale; popups always show the true
 score.
+
+### 8. Click anywhere
+
+You never have to hit a line. Click a building, a block, a park — the nearest
+street is found through a ~245 m grid index and the pin snaps to it. First click
+sets **A**, second sets **B**, third starts a fresh pair. *Set A* / *Set B*
+override that order.
+
+The map opens over the city core (Binondo / Intramuros / Ermita) at zoom 14.75,
+close enough that street names and hover bubbles are immediately usable.
+*Fit Manila* pulls back to the whole city.
 
 ---
 
@@ -191,6 +222,8 @@ python build/fetch_coastline.py
 python build/build_app_data.py    # cache -> manila.js
 ```
 
-`build/drive.py` and `build/zoomcheck.py` drive the app in headless Chrome over
-the DevTools protocol — real clicks, console capture and screenshots — if you
-want to re-verify after changing anything.
+`build/drive.py`, `build/drive2.py` and `build/zoomcheck.py` drive the app in
+headless Chrome over the DevTools protocol — real clicks, real hover, console
+capture and screenshots — if you want to re-verify after changing anything.
+`drive2.py` additionally reads the overlay canvas back pixel by pixel to confirm
+the ramp is actually painting, which a screenshot alone cannot prove.

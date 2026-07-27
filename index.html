@@ -11,13 +11,18 @@
    Palette sampled from OS.png (Overnight Strategist) and validated with the
    data-viz palette checker against the cream surface #F5EBDE:
 
-     walkability ramp   7-step single-hue indigo, monotone light -> dark,
-                        light end 2.24:1 vs surface           [ordinal PASS]
-     route series       #2E7D32 / #B8860B / #F26B6C           [all-pairs PASS]
-                        worst CVD dE 7.2 sits in the 6-8 band, so every route
-                        also carries a dash pattern and a direct label.
+     walkability ramp   7 steps, dark purple (least walkable) -> coral (most),
+                        generated in OKLCH so lightness rises evenly:
+                        dL 0.065-0.067 per step, light end 2.51:1 vs surface,
+                        hue spread 16 deg                     [ordinal PASS]
 
-   The basemap stays black and white; colour is reserved for data.
+   The ramp travels two hues rather than one, at the client's request. That is
+   safe here only because lightness is strictly monotonic — it survives
+   greyscale, print and CVD simulation on its own, with hue as a bonus channel
+   rather than the carrier of the information.
+
+   The basemap stays black and white; colour is reserved for data. The
+   walkability overlay is OFF by default so it never covers street names.
    =========================================================================== */
 :root{
   color-scheme: light;
@@ -28,12 +33,11 @@
 
   --brand:#50488E; --brand-dk:#3A3270; --coral:#F26B6C; --sage:#B1D198; --amber:#FFC234;
 
-  /* sequential: walkability magnitude */
-  --w1:#A399C9; --w2:#8F84BC; --w3:#7B6FAF; --w4:#675BA1;
-  --w5:#534792; --w6:#40347A; --w7:#2C2358;
-
-  /* categorical: the three route proposals */
-  --r-walk:#2E7D32; --r-balance:#B8860B; --r-short:#F26B6C;
+  /* sequential: walkability magnitude, least -> most walkable */
+  --w1:#2c2358; --w2:#4d2676; --w3:#742687; --w4:#9c298b;
+  --w5:#c03583; --w6:#dd4d77; --w7:#f26b6c;
+  --w-grad:linear-gradient(90deg,#2c2358,#742687,#c03583,#f26b6c);
+  --ghost:#9A907C;
 
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace;
@@ -112,7 +116,9 @@ body{background:var(--cream);color:var(--ink);font:14px/1.5 var(--sans);
 .route[aria-pressed=true]{box-shadow:0 0 0 2px rgba(80,72,142,.22)}
 .route .rt{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .route .nm{font-weight:650;font-size:13px;display:flex;align-items:center;gap:7px}
-.route .swatch{width:22px;height:0;border-top-width:3px;border-top-style:solid;flex:0 0 auto;border-radius:2px}
+.route .swatch{width:26px;flex:0 0 auto;border-radius:3px}
+.route .swatch.grad{height:6px;background:var(--w-grad)}
+.route .swatch.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--ghost) 0 5px,transparent 5px 11px)}
 .route .sc{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}
 .route .meta{font:10px/1.5 var(--mono);color:var(--muted);margin-top:5px}
 .route .why{font-size:11.5px;color:var(--ink2);margin-top:5px}
@@ -188,8 +194,20 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 .legend-ax{display:flex;justify-content:space-between;font:9.5px/1 var(--mono);color:var(--muted);margin-top:6px}
 .legend-note{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.45}
 .routekey{display:flex;flex-direction:column;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--rule)}
-.routekey div{display:flex;align-items:center;gap:7px;font:10px/1 var(--mono);color:var(--ink2)}
-.routekey .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;flex:0 0 auto}
+.routekey div{display:flex;align-items:center;gap:7px;font:10px/1.3 var(--mono);color:var(--ink2)}
+.routekey .sw{width:26px;flex:0 0 auto;border-radius:3px}
+.routekey .sw.grad{height:6px;background:var(--w-grad)}
+.routekey .sw.ghost{height:3px;background:repeating-linear-gradient(90deg,var(--ghost) 0 5px,transparent 5px 11px)}
+
+/* street name + score follows the cursor */
+.hovertip{position:absolute;z-index:640;pointer-events:none;background:var(--ink);color:#FFFAED;
+  padding:6px 10px;border-radius:8px;font-size:12.5px;white-space:nowrap;
+  box-shadow:0 3px 12px rgba(20,18,14,.3);transform:translate(-50%,calc(-100% - 14px))}
+.hovertip b{font-weight:650}
+.hovertip .sc{font:10.5px var(--mono);opacity:.8;margin-left:8px}
+.hovertip .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px}
+.hovertip:after{content:"";position:absolute;left:50%;bottom:-5px;width:9px;height:9px;
+  background:var(--ink);transform:translateX(-50%) rotate(45deg);border-radius:1px}
 
 .leaflet-popup-content-wrapper{border-radius:10px;background:var(--card);color:var(--ink);box-shadow:var(--sh)}
 .leaflet-popup-content{margin:11px 13px;font-size:12.5px}
@@ -246,7 +264,7 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
       <!-- ---------------------------------------------------------- ROUTE -->
       <section class="pane on" id="pane-route" role="tabpanel" aria-labelledby="tab-route">
         <h3>Walking route</h3>
-        <p>Click the map to drop <b>A</b>, click again for <b>B</b>. Both snap to the nearest real street.</p>
+        <p>Click anywhere on the map to drop <b>A</b>, click again for <b>B</b>. You don't have to hit a street — the nearest one is picked for you.</p>
 
         <div class="ends">
           <div class="end" id="end-a"><div class="k">A — origin</div><div class="v" id="a-name">not set</div><div class="h3i" id="a-h3">—</div></div>
@@ -358,11 +376,14 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 
     <div class="mapwrap">
       <div id="map"></div>
+      <div class="hovertip" id="hovertip" hidden></div>
       <div class="ov ov-help">
-        <b>Click any street</b> to score it &middot; <b>double-click</b> for the whole
-        avenue &middot; in the Route tab, two clicks set <kbd>A</kbd> then <kbd>B</kbd>.
+        <b>Hover</b> any street for its name and score &middot; <b>click anywhere</b>
+        &mdash; a building, a block, a park &mdash; and it snaps to the nearest
+        street, setting <kbd>A</kbd> then <kbd>B</kbd>.
       </div>
       <div class="mapbtns">
+        <button class="btn" id="mb-walk" aria-pressed="false">Walkability: off</button>
         <button class="btn" id="mb-fit">Fit Manila</button>
         <button class="btn" id="mb-colour" aria-pressed="true">Colour: by rank</button>
       </div>
@@ -393,13 +414,17 @@ code{font:11.5px var(--mono);background:var(--cream);padding:1px 5px;border-radi
 
 var M = window.MANILA, W = window.WALK_DATA, H3 = window.h3, GBM = window.MODEL_GBM;
 
-var RAMP = ['#A399C9','#8F84BC','#7B6FAF','#675BA1','#534792','#40347A','#2C2358'];
+/* index 0 = least walkable (dark purple) ... index 6 = most walkable (coral) */
+var RAMP = ['#2c2358','#4d2676','#742687','#9c298b','#c03583','#dd4d77','#f26b6c'];
+var GHOST = '#9A907C';
 var ROUTE_STYLES = [
-  {key:'walk',    name:'Most walkable', colour:'#2E7D32', dash:null,     alpha:8.0},
-  {key:'balance', name:'Balanced',      colour:'#B8860B', dash:'11,7',   alpha:2.0},
-  {key:'short',   name:'Shortest',      colour:'#F26B6C', dash:'2.5,6',  alpha:0.0}
+  {key:'walk',    name:'Most walkable', alpha:8.0},
+  {key:'balance', name:'Balanced',      alpha:2.0},
+  {key:'short',   name:'Shortest',      alpha:0.0}
 ];
 var WALK_KMH = 4.8;
+var CORE = [14.5942, 120.9812];   /* Binondo / Intramuros / Ermita */
+var CORE_ZOOM = 14.75;
 
 function $(id){ return document.getElementById(id); }
 function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){
@@ -703,9 +728,10 @@ var StreetTiles = L.GridLayer.extend({
     });
   }
 });
+/* Deliberately NOT added to the map at boot: the coloured overlay sits on top of
+   the basemap's street labels, so it stays off until asked for. */
 var streetLayer = new StreetTiles({tileSize:256, updateWhenZooming:false, keepBuffer:2,
                                    className:'walk-streets', pane:'walkPane'});
-streetLayer.addTo(map);
 
 var boundLayer  = L.layerGroup().addTo(map);
 var legalLayer  = L.layerGroup();
@@ -778,20 +804,40 @@ function highlight(ids, group, opts) {
   });
 }
 
+function hideTip() {
+  $('hovertip').hidden = true;
+  hoverLayer.clearLayers();
+  map.getContainer().style.cursor = '';
+}
 map.on('mousemove', (function () {
-  var last = 0;
+  var last = 0, lastId = -1;
   return function (ev) {
     var now = (window.performance || Date).now();
-    if (now - last < 45) return;
+    if (now - last < 40) return;
     last = now;
-    var tol = Math.max(14, 300/Math.pow(2, map.getZoom()-11));
+    var tol = Math.max(16, 320/Math.pow(2, map.getZoom()-11));
     var hit = nearestStreet(ev.latlng.lat, ev.latlng.lng, tol);
-    if (!hit) { hoverLayer.clearLayers(); map.getContainer().style.cursor = ''; return; }
+    if (!hit) { lastId = -1; hideTip(); return; }
     map.getContainer().style.cursor = 'pointer';
-    highlight([hit.i], hoverLayer, {color:'#14120E', weight:7, opacity:.16});
+    var i = hit.i, tip = $('hovertip');
+    if (i !== lastId) {
+      lastId = i;
+      highlight([i], hoverLayer, {color:'#14120E', weight:8, opacity:.2});
+      tip.innerHTML =
+        '<i class="dot" style="background:' + colourOf(i) + '"></i>' +
+        '<b>' + esc(M.names[S[i][F.NAME]] || '(unnamed road)') + '</b>' +
+        '<span class="sc">walkability ' + SCORE[i].toFixed(1) +
+        ' · rank ' + Math.round(RANK[i]*100) + '</span>';
+    }
+    /* keep the bubble inside the map pane near the edges */
+    var w = map.getSize().x, half = tip.offsetWidth/2 || 90;
+    tip.style.left = clamp(ev.containerPoint.x, half + 6, w - half - 6) + 'px';
+    tip.style.top  = Math.max(ev.containerPoint.y, 40) + 'px';
+    tip.hidden = false;
   };
 })());
-map.on('mouseout', function () { hoverLayer.clearLayers(); });
+map.on('mouseout', hideTip);
+map.on('movestart zoomstart', hideTip);
 
 map.on('click', function (ev) {
   if (clickTimer) return;
@@ -815,11 +861,13 @@ function doSelect(latlng, whole) {
   renderStreet();
   loadIntoForm(i);
 
-  var routeActive = $('tab-route').getAttribute('aria-selected') === 'true';
+  /* A click anywhere places a pin — you never have to hit the line itself.
+     A, then B, then a fresh pair. */
   if (arm === 'A') setEnd('A', i, hit.ll);
   else if (arm === 'B') setEnd('B', i, hit.ll);
-  else if (routeActive && !A) setEnd('A', i, hit.ll);
-  else if (routeActive) setEnd('B', i, hit.ll);
+  else if (!A) setEnd('A', i, hit.ll);
+  else if (!B) setEnd('B', i, hit.ll);
+  else { B = null; setEnd('A', i, hit.ll); }
   arm = null; syncArm();
 }
 
@@ -864,6 +912,7 @@ function fmtM(m){ return m >= 1000 ? (m/1000).toFixed(2) + ' km' : Math.round(m)
 
 function computeRoutes() {
   routeLayer.clearLayers();
+  dimOverlay(false);
   routes = [];
   $('routes').innerHTML = '';
   $('routes-wrap').hidden = true;
@@ -924,21 +973,25 @@ function renderRoutes() {
   routes.forEach(function (r, idx) {
     var el = document.createElement('div');
     el.className = 'route' + (r.dup ? ' dup' : '');
-    el.style.borderLeftColor = r.colour;
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-pressed', idx === activeRoute);
     var extra = r.len - shortest, gain = r.mean - worst;
+    var allSame = routes.length > 1 && routes.slice(1).every(function (o) { return o.dup; });
     var why = r.dup
       ? 'Identical to <b>' + esc(r.dupOf) + '</b> — no better option exists here.'
-      : (extra < 1
-          ? 'The shortest way there.'
-          : '+' + fmtM(extra) + ' (' + Math.round(100*extra/shortest) + '% longer)' +
-            (gain > 0.05 ? ' for +' + gain.toFixed(1) + ' walkability.' : '.'));
+      : (allSame
+          ? 'The only sensible way there — all three options came back as the same route.'
+          : extra < 1
+            ? 'The shortest way there.'
+            : '+' + fmtM(extra) + ' (' + Math.round(100*extra/shortest) + '% longer)' +
+              (gain > 0.05 ? ' for +' + gain.toFixed(1) + ' walkability.' : '.'));
+    el.style.borderLeftColor = idx === activeRoute ? 'var(--brand)' : 'var(--rule2)';
     el.innerHTML =
-      '<div class="rt"><div class="nm"><i class="swatch" style="border-top-color:' + r.colour +
-        ';' + (r.dash ? 'border-top-style:dashed' : '') + '"></i>' + esc(r.name) + '</div>' +
-      '<div class="sc" style="color:' + r.colour + '">' + r.mean.toFixed(1) + '</div></div>' +
+      '<div class="rt"><div class="nm">' +
+        '<i class="swatch ' + (idx === activeRoute ? 'grad' : 'ghost') + '"></i>' +
+        esc(r.name) + '</div>' +
+      '<div class="sc" style="color:' + colourForScore(r.mean) + '">' + r.mean.toFixed(1) + '</div></div>' +
       '<div class="meta">' + fmtM(r.len) + ' &middot; ' + Math.round(r.mins) + ' min &middot; ' +
         r.edges.length + ' segments</div>' +
       '<div class="why">' + why + '</div>';
@@ -949,27 +1002,47 @@ function renderRoutes() {
     host.appendChild(el);
   });
   $('routekey').hidden = false;
-  $('routekey').innerHTML = routes.map(function (r) {
-    return '<div><i class="sw" style="border-top-color:' + r.colour + ';' +
-           (r.dash ? 'border-top-style:dashed' : '') + '"></i>' + esc(r.name) + '</div>';
-  }).join('');
+  $('routekey').innerHTML =
+    '<div><i class="sw grad"></i>selected route, by walkability</div>' +
+    '<div><i class="sw ghost"></i>' + (routes.length - 1) +
+      ' other option' + (routes.length === 2 ? '' : 's') + ' — pick one at left</div>';
 }
 
 function drawRoute(r, active) {
   var lines = r.edges.map(function (e) { return GEOM[e]; });
-  L.polyline(lines, {renderer:svgR, color:'#FFFAED', weight: active ? 9 : 6,
-    opacity: active ? .95 : .5, interactive:false}).addTo(routeLayer);
-  L.polyline(lines, {renderer:svgR, color:r.colour, dashArray:r.dash,
-    weight: active ? 5 : 3, opacity: active ? 1 : .55, lineCap:'round',
-    interactive:false}).addTo(routeLayer);
+  if (!active) {
+    /* the options you are not looking at: faint grey dashes, still clickable
+       through their sidebar card */
+    L.polyline(lines, {renderer:svgR, color:GHOST, weight:3, opacity:.5,
+      dashArray:'5,7', lineCap:'butt', interactive:false}).addTo(routeLayer);
+    return;
+  }
+  /* cream casing so the gradient reads against any basemap tone */
+  L.polyline(lines, {renderer:svgR, color:'#FFFAED', weight:10, opacity:.95,
+    lineCap:'round', lineJoin:'round', interactive:false}).addTo(routeLayer);
+  /* then one stroke per segment, each in its own walkability colour */
+  r.edges.forEach(function (e) {
+    L.polyline(GEOM[e], {renderer:svgR, color:colourOf(e), weight:6, opacity:1,
+      lineCap:'round', lineJoin:'round', interactive:false}).addTo(routeLayer);
+  });
+}
+/* When a route is on screen it owns the colour; the city-wide overlay steps back
+   so the two never compete for the same hues. */
+function dimOverlay(on) {
+  map.getPane('walkPane').style.opacity = on ? '0.32' : '1';
 }
 function selectRoute(idx) {
   activeRoute = idx;
+  dimOverlay(true);
   routeLayer.clearLayers();
   routes.forEach(function (r, i) { if (i !== idx) drawRoute(r, false); });
   drawRoute(routes[idx], true);
   Array.prototype.forEach.call($('routes').children, function (el, i) {
-    el.setAttribute('aria-pressed', i === idx);
+    var on = i === idx;
+    el.setAttribute('aria-pressed', on);
+    el.style.borderLeftColor = on ? 'var(--brand)' : 'var(--rule2)';
+    var sw = el.querySelector('.swatch');
+    if (sw) sw.className = 'swatch ' + (on ? 'grad' : 'ghost');
   });
   renderProfile(routes[idx]);
 }
@@ -998,9 +1071,9 @@ function renderProfile(r) {
              '" stroke="#D2C6B2" stroke-width="1"/>');
   var my = top + h - clamp((r.mean-st.min)/span, 0, 1)*h;
   parts.push('<line x1="0" y1="' + my.toFixed(1) + '" x2="' + W_ + '" y2="' + my.toFixed(1) +
-             '" stroke="' + r.colour + '" stroke-width="1.5" stroke-dasharray="4,4"/>');
+             '" stroke="#50488E" stroke-width="1.5" stroke-dasharray="4,4"/>');
   parts.push('<text x="4" y="' + Math.max(9, my-4).toFixed(1) +
-             '" font-size="9" font-family="ui-monospace,monospace" fill="' + r.colour +
+             '" font-size="9" font-family="ui-monospace,monospace" fill="#50488E' +
              '">mean ' + r.mean.toFixed(1) + '</text>');
   svg.innerHTML = parts.join('');
   $('tape-mid').textContent = fmtM(r.len) + ' total';
@@ -1180,7 +1253,17 @@ function toggleLayer(btn, layer) {
     if (on) map.addLayer(layer); else map.removeLayer(layer);
   });
 }
-toggleLayer('mb-streets', streetLayer);
+/* The walkability overlay has two switches — one on the map, one in the Method
+   tab — so they share a single setter and can never disagree. */
+function setStreets(on) {
+  if (on) map.addLayer(streetLayer); else map.removeLayer(streetLayer);
+  $('mb-streets').setAttribute('aria-pressed', on);
+  $('mb-walk').setAttribute('aria-pressed', on);
+  $('mb-walk').textContent = 'Walkability: ' + (on ? 'on' : 'off');
+  renderLegend();
+}
+$('mb-walk').onclick = function () { setStreets(this.getAttribute('aria-pressed') !== 'true'); };
+$('mb-streets').onclick = function () { setStreets(this.getAttribute('aria-pressed') !== 'true'); };
 toggleLayer('mb-hex', hexLayer);
 toggleLayer('mb-bound', boundLayer);
 toggleLayer('mb-legal', legalLayer);
@@ -1217,17 +1300,22 @@ function renderLegend() {
   var st = statsFor();
   $('legend').innerHTML = RAMP.map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('');
   $('lg-title').textContent = 'Walkability — ' + (scoreField === 'gbm' ? 'ported GBM' : 'analytic rule');
+  var overlayOn = map.hasLayer(streetLayer);
+  var where = overlayOn
+    ? 'Painted on every street, plus routes and hover.'
+    : 'Used by the hover bubble and the selected route. Turn on <b>Walkability</b> ' +
+      'to paint it across the whole city.';
   if (colourByRank) {
     $('lg-lo').textContent = 'least walkable';
     $('lg-hi').textContent = 'most walkable';
-    $('lg-note').innerHTML = 'Coloured by <b>rank within Manila</b>, so each shade holds a similar ' +
-      'number of streets. Real scores run ' + st.min.toFixed(1) + '–' + st.max.toFixed(1) +
+    $('lg-note').innerHTML = where + ' Coloured by <b>rank within Manila</b>, so each shade holds ' +
+      'a similar number of streets. Real scores run ' + st.min.toFixed(1) + '–' + st.max.toFixed(1) +
       ' (median ' + st.median.toFixed(1) + ').';
   } else {
     $('lg-lo').textContent = st.min.toFixed(0);
     $('lg-hi').textContent = st.max.toFixed(0);
-    $('lg-note').innerHTML = 'Absolute score on the 0–100 rubric. Manila bunches low — median ' +
-      st.median.toFixed(1) + ' — so most streets sit near the light end.';
+    $('lg-note').innerHTML = where + ' Absolute score on the 0–100 rubric. Manila bunches low — ' +
+      'median ' + st.median.toFixed(1) + ' — so most streets sit near the dark end.';
   }
 }
 function renderModelChip() {
@@ -1334,7 +1422,7 @@ function renderModelChip() {
 /* -------------------------------------------------------------------- boot */
 renderModelChip();
 renderLegend();
-fitManila();
+map.setView(CORE, CORE_ZOOM);   /* open on the city core, names readable */
 syncEnds();
 computeRoutes();
 loadIntoForm(0);
